@@ -17,6 +17,7 @@
     autoAdvanceEnabled: false,
     autoAdvanceSeconds: 5,
     autoAdvanceTimerId: null,
+    autoAdvanceTransitionInFlight: false,
     audioEnabled: false,
     audioMinSwitchSec: 15,
     audioMaxSwitchSec: 45,
@@ -66,7 +67,10 @@
     btnToggleSettings: document.getElementById("btn-toggle-settings"),
     btnCloseSettings: document.getElementById("btn-close-settings"),
     settingsPanel: document.getElementById("settings-panel"),
-    settingsBackdrop: document.getElementById("settings-backdrop")
+    settingsBackdrop: document.getElementById("settings-backdrop"),
+    autoAdvanceOverlay: document.getElementById("auto-advance-overlay"),
+    autoAdvanceFrom: document.getElementById("auto-advance-from"),
+    autoAdvanceTo: document.getElementById("auto-advance-to")
   };
 
   const observer = new IntersectionObserver(onIntersect, {
@@ -485,6 +489,10 @@
       clearTimeout(state.autoAdvanceTimerId);
       state.autoAdvanceTimerId = null;
     }
+    if (state.autoAdvanceTransitionInFlight) {
+      state.autoAdvanceTransitionInFlight = false;
+      stopAutoAdvanceOverlay();
+    }
   }
 
   function populateAutoAdvanceOptions() {
@@ -553,6 +561,31 @@
     const names = state.audioLibrary.slice(0, 3).map((item) => item.name);
     const suffix = count > 3 ? ` +${count - 3} more` : "";
     refs.audioLibraryStatus.textContent = `Audio library: ${count} file${count === 1 ? "" : "s"} (${names.join(", ")}${suffix})`;
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function getVideoApiUrl(videoId) {
+    return `/api/video/${encodeURIComponent(videoId)}`;
+  }
+
+  function getCardByIndex(index) {
+    return refs.feed.querySelector(`.video-card[data-idx="${index}"]`);
+  }
+
+  function jumpFeedToIndexNoAnimation(index) {
+    const target = getCardByIndex(index);
+    if (!target) {
+      return false;
+    }
+
+    const previousBehavior = refs.feed.style.scrollBehavior;
+    refs.feed.style.scrollBehavior = "auto";
+    refs.feed.scrollTop = target.offsetTop;
+    refs.feed.style.scrollBehavior = previousBehavior;
+    return true;
   }
 
   async function refreshAudioLibrary(showResultToast = false) {
@@ -792,15 +825,66 @@
     }
   }
 
+  function stopAutoAdvanceOverlay() {
+    if (!refs.autoAdvanceOverlay || !refs.autoAdvanceFrom || !refs.autoAdvanceTo) {
+      return;
+    }
+
+    refs.autoAdvanceOverlay.classList.remove("active");
+    refs.autoAdvanceOverlay.classList.add("hidden");
+
+    for (const video of [refs.autoAdvanceFrom, refs.autoAdvanceTo]) {
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+      video.style.opacity = "0";
+    }
+  }
+
+  async function crossfadeAutoAdvanceTo(next) {
+    const currentIndex = state.activeIndex;
+    const currentItem = state.items[currentIndex];
+    const nextItem = state.items[next];
+    if (!currentItem || !nextItem || !refs.autoAdvanceOverlay || !refs.autoAdvanceFrom || !refs.autoAdvanceTo) {
+      jumpFeedToIndexNoAnimation(next);
+      return;
+    }
+
+    state.autoAdvanceTransitionInFlight = true;
+    const from = refs.autoAdvanceFrom;
+    const to = refs.autoAdvanceTo;
+
+    try {
+      from.src = getVideoApiUrl(currentItem.id);
+      to.src = getVideoApiUrl(nextItem.id);
+      from.style.opacity = "1";
+      to.style.opacity = "0";
+      refs.autoAdvanceOverlay.classList.remove("hidden");
+
+      await Promise.all([from.play().catch(() => {}), to.play().catch(() => {})]);
+      await sleep(20);
+      jumpFeedToIndexNoAnimation(next);
+      await sleep(20);
+
+      refs.autoAdvanceOverlay.classList.add("active");
+      from.style.opacity = "0";
+      to.style.opacity = "1";
+      await sleep(1000);
+    } finally {
+      state.autoAdvanceTransitionInFlight = false;
+      stopAutoAdvanceOverlay();
+    }
+  }
+
   function scheduleAutoAdvance() {
     stopAutoAdvanceTimer();
 
-    if (!state.autoAdvanceEnabled || !state.authValid || state.activeIndex < 0) {
+    if (!state.autoAdvanceEnabled || !state.authValid || state.activeIndex < 0 || state.autoAdvanceTransitionInFlight) {
       return;
     }
 
     state.autoAdvanceTimerId = setTimeout(async () => {
-      if (!state.autoAdvanceEnabled || !state.authValid) {
+      if (!state.autoAdvanceEnabled || !state.authValid || state.autoAdvanceTransitionInFlight) {
         return;
       }
 
@@ -816,10 +900,7 @@
       }
 
       if (next < state.items.length) {
-        const target = refs.feed.querySelector(`.video-card[data-idx="${next}"]`);
-        if (target) {
-          target.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
+        await crossfadeAutoAdvanceTo(next);
       }
 
       scheduleAutoAdvance();
@@ -1248,9 +1329,8 @@
     updateFeedModeUi();
     await loadSettings();
     await refreshAudioLibrary(false);
-    if (state.audioEnabled) {
-      await setAudioEnabled(true, "init");
-    }
+    state.audioEnabled = false;
+    syncAudioControls();
     await refreshStats();
     startStatsAutoRefresh();
 
