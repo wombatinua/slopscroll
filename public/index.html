@@ -125,6 +125,21 @@
         <select id="auto-advance-seconds"></select>
         <label for="disk-warn">Low disk warning GB</label>
         <input id="disk-warn" type="number" min="0" step="0.5" value="2" />
+        <h3>Feed Browsing Levels</h3>
+        <div class="toggle-row-single-line">
+          <label class="toggle-inline" for="browsing-level-r">
+            <input id="browsing-level-r" type="checkbox" />
+            R
+          </label>
+          <label class="toggle-inline" for="browsing-level-x">
+            <input id="browsing-level-x" type="checkbox" />
+            X
+          </label>
+          <label class="toggle-inline" for="browsing-level-xxx">
+            <input id="browsing-level-xxx" type="checkbox" />
+            XXX
+          </label>
+        </div>
         <h3>Background Audio Loops</h3>
         <label class="toggle-inline" for="audio-enabled">
           <input id="audio-enabled" type="checkbox" />
@@ -165,6 +180,32 @@
     <div id="fixed-meta" class="meta fixed-meta hidden">
       <div id="fixed-meta-main" class="meta-main"></div>
       <div id="fixed-meta-sub" class="meta-sub"></div>
+    </div>
+    <div id="feed-filters" class="feed-filters">
+      <div id="sort-control" class="sort-control">
+        <button id="btn-sort-toggle" type="button" class="sort-toggle-btn" aria-expanded="false" aria-haspopup="menu" title="Sort feed">
+          Newest
+        </button>
+        <div id="sort-menu" class="sort-menu hidden" role="menu" aria-label="Feed sort">
+          <button type="button" class="sort-menu-item" data-sort="Most Reactions" role="menuitemradio" aria-checked="false">Most Reactions</button>
+          <button type="button" class="sort-menu-item" data-sort="Most Comments" role="menuitemradio" aria-checked="false">Most Comments</button>
+          <button type="button" class="sort-menu-item" data-sort="Most Collected" role="menuitemradio" aria-checked="false">Most Collected</button>
+          <button type="button" class="sort-menu-item" data-sort="Newest" role="menuitemradio" aria-checked="true">Newest</button>
+          <button type="button" class="sort-menu-item" data-sort="Oldest" role="menuitemradio" aria-checked="false">Oldest</button>
+        </div>
+      </div>
+      <div id="period-control" class="period-control">
+        <button id="btn-period-toggle" type="button" class="sort-toggle-btn" aria-expanded="false" aria-haspopup="menu" title="Feed period">
+          Week
+        </button>
+        <div id="period-menu" class="period-menu hidden" role="menu" aria-label="Feed period">
+          <button type="button" class="period-menu-item" data-period="Day" role="menuitemradio" aria-checked="false">Day</button>
+          <button type="button" class="period-menu-item" data-period="Week" role="menuitemradio" aria-checked="true">Week</button>
+          <button type="button" class="period-menu-item" data-period="Month" role="menuitemradio" aria-checked="false">Month</button>
+          <button type="button" class="period-menu-item" data-period="Year" role="menuitemradio" aria-checked="false">Year</button>
+          <button type="button" class="period-menu-item" data-period="AllTime" role="menuitemradio" aria-checked="false">All Time</button>
+        </div>
+      </div>
     </div>
     <button
       id="btn-exit-fullscreen"

@@ -13,6 +13,28 @@ export interface FeedFetchOptions {
 export class CivitaiClient {
   constructor(private readonly config: AppConfig, private spec: CivitaiRequestSpec | null) {}
 
+  private getConfiguredBrowsingLevel(): number {
+    let level = 0;
+    if (this.config.settings.browsingLevelR) {
+      level |= 4;
+    }
+    if (this.config.settings.browsingLevelX) {
+      level |= 8;
+    }
+    if (this.config.settings.browsingLevelXXX) {
+      level |= 16;
+    }
+    return level;
+  }
+
+  private getConfiguredFeedSort(): string {
+    return this.config.settings.feedSort;
+  }
+
+  private getConfiguredFeedPeriod(): string {
+    return this.config.settings.feedPeriod;
+  }
+
   setRequestSpec(spec: CivitaiRequestSpec | null): void {
     this.spec = spec;
   }
@@ -393,11 +415,13 @@ export class CivitaiClient {
     }
 
     const jsonObj = json as Record<string, unknown>;
+    jsonObj.browsingLevel = this.getConfiguredBrowsingLevel();
+    jsonObj.sort = this.getConfiguredFeedSort();
+    jsonObj.period = this.getConfiguredFeedPeriod();
 
     if (options.authorMode && options.author) {
       jsonObj.username = options.author;
       jsonObj.types = ["video"];
-      jsonObj.period = "AllTime";
       delete jsonObj.excludedTagIds;
       delete jsonObj.followed;
     }
@@ -441,6 +465,10 @@ export class CivitaiClient {
   }
 
   private applyGenericQueryOverrides(baseQuery: Record<string, string>, options: FeedFetchOptions): void {
+    baseQuery.browsingLevel = String(this.getConfiguredBrowsingLevel());
+    baseQuery.sort = this.getConfiguredFeedSort();
+    baseQuery.period = this.getConfiguredFeedPeriod();
+
     if (!options.authorMode || !options.author) {
       return;
     }

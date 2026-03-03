@@ -9,7 +9,12 @@
     "audioEnabled": false,
     "audioMinSwitchSec": 15,
     "audioMaxSwitchSec": 45,
-    "audioCrossfadeSec": 2
+    "audioCrossfadeSec": 2,
+    "browsingLevelR": false,
+    "browsingLevelX": true,
+    "browsingLevelXXX": true,
+    "feedSort": "Newest",
+    "feedPeriod": "Week"
   },
   "civitai": {
     "requestTimeoutMs": 15000,

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { CivitaiRequestSpec, Settings } from "./types";
+import type { CivitaiRequestSpec, FeedPeriod, FeedSort, Settings } from "./types";
 
 export interface AppConfig {
   host: string;
@@ -41,6 +41,8 @@ interface PartialConfig {
 const ROOT = process.cwd();
 const DEFAULT_DATA_DIR = path.join(ROOT, "data");
 const DEFAULT_MEDIA_DIR = path.join(ROOT, "media");
+const ALLOWED_FEED_SORTS: FeedSort[] = ["Most Reactions", "Most Comments", "Most Collected", "Newest", "Oldest"];
+const ALLOWED_FEED_PERIODS: FeedPeriod[] = ["Day", "Week", "Month", "Year", "AllTime"];
 
 export const defaultConfig: AppConfig = {
   host: "0.0.0.0",
@@ -59,7 +61,12 @@ export const defaultConfig: AppConfig = {
     audioEnabled: false,
     audioMinSwitchSec: 15,
     audioMaxSwitchSec: 45,
-    audioCrossfadeSec: 2
+    audioCrossfadeSec: 2,
+    browsingLevelR: false,
+    browsingLevelX: true,
+    browsingLevelXXX: true,
+    feedSort: "Newest",
+    feedPeriod: "Week"
   },
   civitai: {
     validatePath: "",
@@ -95,6 +102,24 @@ function toNum(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function toFeedSort(value: string | undefined, fallback: FeedSort): FeedSort {
+  if (!value) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  const match = ALLOWED_FEED_SORTS.find((candidate) => candidate.toLowerCase() === normalized);
+  return match ?? fallback;
+}
+
+function toFeedPeriod(value: string | undefined, fallback: FeedPeriod): FeedPeriod {
+  if (!value) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  const match = ALLOWED_FEED_PERIODS.find((candidate) => candidate.toLowerCase() === normalized);
+  return match ?? fallback;
+}
+
 export function loadConfig(): AppConfig {
   const localPath = path.join(ROOT, "config", "local.json");
   const localConfig = readJsonFile<PartialConfig>(localPath) ?? {};
@@ -121,7 +146,20 @@ export function loadConfig(): AppConfig {
     audioCrossfadeSec: toNum(
       process.env.SLOPSCROLL_AUDIO_CROSSFADE_SEC,
       localConfig.settings?.audioCrossfadeSec ?? defaultConfig.settings.audioCrossfadeSec
-    )
+    ),
+    browsingLevelR:
+      (process.env.SLOPSCROLL_BROWSING_LEVEL_R ?? String(localConfig.settings?.browsingLevelR ?? defaultConfig.settings.browsingLevelR)).toLowerCase() ===
+      "true",
+    browsingLevelX:
+      (process.env.SLOPSCROLL_BROWSING_LEVEL_X ?? String(localConfig.settings?.browsingLevelX ?? defaultConfig.settings.browsingLevelX)).toLowerCase() ===
+      "true",
+    browsingLevelXXX:
+      (
+        process.env.SLOPSCROLL_BROWSING_LEVEL_XXX ??
+        String(localConfig.settings?.browsingLevelXXX ?? defaultConfig.settings.browsingLevelXXX)
+      ).toLowerCase() === "true",
+    feedSort: toFeedSort(process.env.SLOPSCROLL_FEED_SORT, localConfig.settings?.feedSort ?? defaultConfig.settings.feedSort),
+    feedPeriod: toFeedPeriod(process.env.SLOPSCROLL_FEED_PERIOD, localConfig.settings?.feedPeriod ?? defaultConfig.settings.feedPeriod)
   };
 
   const civitai = {

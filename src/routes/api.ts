@@ -9,6 +9,7 @@ import { PrefetchService } from "../services/prefetchService";
 import { AudioLibraryService } from "../services/audioLibraryService";
 import type { AppConfig } from "../config";
 import { loadRequestSpec } from "../config";
+import type { FeedPeriod, FeedSort } from "../types";
 
 interface Dependencies {
   config: AppConfig;
@@ -23,6 +24,27 @@ interface Dependencies {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+const FEED_SORT_VALUES: FeedSort[] = ["Most Reactions", "Most Comments", "Most Collected", "Newest", "Oldest"];
+const FEED_PERIOD_VALUES: FeedPeriod[] = ["Day", "Week", "Month", "Year", "AllTime"];
+
+function normalizeFeedSort(value: unknown, fallback: FeedSort): FeedSort {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  const match = FEED_SORT_VALUES.find((candidate) => candidate.toLowerCase() === normalized);
+  return match ?? fallback;
+}
+
+function normalizeFeedPeriod(value: unknown, fallback: FeedPeriod): FeedPeriod {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  const match = FEED_PERIOD_VALUES.find((candidate) => candidate.toLowerCase() === normalized);
+  return match ?? fallback;
 }
 
 export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies): Promise<void> {
@@ -250,6 +272,11 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
       audioMinSwitchSec?: number;
       audioMaxSwitchSec?: number;
       audioCrossfadeSec?: number;
+      browsingLevelR?: boolean;
+      browsingLevelX?: boolean;
+      browsingLevelXXX?: boolean;
+      feedSort?: string;
+      feedPeriod?: string;
     };
   }>("/api/settings", async (req, reply) => {
     const existing = deps.db.getSettings(deps.config.settings);
@@ -268,7 +295,12 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
       audioEnabled: Boolean(req.body?.audioEnabled ?? existing.audioEnabled),
       audioMinSwitchSec: normalizedAudioMin,
       audioMaxSwitchSec: normalizedAudioMax,
-      audioCrossfadeSec: normalizedAudioCrossfade
+      audioCrossfadeSec: normalizedAudioCrossfade,
+      browsingLevelR: Boolean(req.body?.browsingLevelR ?? existing.browsingLevelR),
+      browsingLevelX: Boolean(req.body?.browsingLevelX ?? existing.browsingLevelX),
+      browsingLevelXXX: Boolean(req.body?.browsingLevelXXX ?? existing.browsingLevelXXX),
+      feedSort: normalizeFeedSort(req.body?.feedSort, existing.feedSort),
+      feedPeriod: normalizeFeedPeriod(req.body?.feedPeriod, existing.feedPeriod)
     };
 
     if (!Number.isFinite(next.lowDiskWarnGb)) {

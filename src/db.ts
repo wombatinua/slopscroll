@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { ensureParentDir } from "./utils/fs";
-import type { CacheEntry, Settings, VideoRecord } from "./types";
+import type { CacheEntry, FeedPeriod, FeedSort, Settings, VideoRecord } from "./types";
 
 export interface CacheStats {
   totalVideos: number;
@@ -16,6 +16,26 @@ export interface CacheStats {
 
 const METRIC_KEYS = ["cache_hits", "cache_misses", "download_failures", "auth_failures"] as const;
 type MetricKey = (typeof METRIC_KEYS)[number];
+const FEED_SORT_VALUES: FeedSort[] = ["Most Reactions", "Most Comments", "Most Collected", "Newest", "Oldest"];
+const FEED_PERIOD_VALUES: FeedPeriod[] = ["Day", "Week", "Month", "Year", "AllTime"];
+
+function normalizeFeedSort(value: string | undefined, fallback: FeedSort): FeedSort {
+  if (!value) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  const match = FEED_SORT_VALUES.find((candidate) => candidate.toLowerCase() === normalized);
+  return match ?? fallback;
+}
+
+function normalizeFeedPeriod(value: string | undefined, fallback: FeedPeriod): FeedPeriod {
+  if (!value) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  const match = FEED_PERIOD_VALUES.find((candidate) => candidate.toLowerCase() === normalized);
+  return match ?? fallback;
+}
 
 export class AppDb {
   private readonly db: DatabaseSync;
@@ -508,7 +528,7 @@ export class AppDb {
   getSettings(defaults: Settings): Settings {
     const rows = this.db
       .prepare(
-        `SELECT key, value FROM settings WHERE key IN ('prefetchDepth', 'lowDiskWarnGb', 'audioEnabled', 'audioMinSwitchSec', 'audioMaxSwitchSec', 'audioCrossfadeSec')`
+        `SELECT key, value FROM settings WHERE key IN ('prefetchDepth', 'lowDiskWarnGb', 'audioEnabled', 'audioMinSwitchSec', 'audioMaxSwitchSec', 'audioCrossfadeSec', 'browsingLevelR', 'browsingLevelX', 'browsingLevelXXX', 'feedSort', 'feedPeriod')`
       )
       .all() as Array<{ key: string; value: string }>;
 
@@ -547,6 +567,21 @@ export class AppDb {
           output.audioCrossfadeSec = parsed;
         }
       }
+      if (row.key === "browsingLevelR") {
+        output.browsingLevelR = row.value.toLowerCase() === "true";
+      }
+      if (row.key === "browsingLevelX") {
+        output.browsingLevelX = row.value.toLowerCase() === "true";
+      }
+      if (row.key === "browsingLevelXXX") {
+        output.browsingLevelXXX = row.value.toLowerCase() === "true";
+      }
+      if (row.key === "feedSort") {
+        output.feedSort = normalizeFeedSort(row.value, defaults.feedSort);
+      }
+      if (row.key === "feedPeriod") {
+        output.feedPeriod = normalizeFeedPeriod(row.value, defaults.feedPeriod);
+      }
     }
     return output;
   }
@@ -566,7 +601,12 @@ export class AppDb {
       ["audioEnabled", String(settings.audioEnabled)],
       ["audioMinSwitchSec", String(settings.audioMinSwitchSec)],
       ["audioMaxSwitchSec", String(settings.audioMaxSwitchSec)],
-      ["audioCrossfadeSec", String(settings.audioCrossfadeSec)]
+      ["audioCrossfadeSec", String(settings.audioCrossfadeSec)],
+      ["browsingLevelR", String(settings.browsingLevelR)],
+      ["browsingLevelX", String(settings.browsingLevelX)],
+      ["browsingLevelXXX", String(settings.browsingLevelXXX)],
+      ["feedSort", settings.feedSort],
+      ["feedPeriod", settings.feedPeriod]
     ]);
 
     this.db.exec("BEGIN;");

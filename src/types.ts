@@ -32,6 +32,9 @@ export interface AuthState {
   failureReason?: string;
 }
 
+export type FeedSort = "Most Reactions" | "Most Comments" | "Most Collected" | "Newest" | "Oldest";
+export type FeedPeriod = "Day" | "Week" | "Month" | "Year" | "AllTime";
+
 export interface Settings {
   prefetchDepth: number;
   lowDiskWarnGb: number;
@@ -39,6 +42,11 @@ export interface Settings {
   audioMinSwitchSec: number;
   audioMaxSwitchSec: number;
   audioCrossfadeSec: number;
+  browsingLevelR: boolean;
+  browsingLevelX: boolean;
+  browsingLevelXXX: boolean;
+  feedSort: FeedSort;
+  feedPeriod: FeedPeriod;
 }
 
 export interface FeedPage {

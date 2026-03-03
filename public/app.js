@@ -22,6 +22,13 @@
     audioMinSwitchSec: 15,
     audioMaxSwitchSec: 45,
     audioCrossfadeSec: 2,
+    browsingLevelR: false,
+    browsingLevelX: true,
+    browsingLevelXXX: true,
+    feedSort: "Newest",
+    feedPeriod: "Week",
+    sortMenuOpen: false,
+    periodMenuOpen: false,
     audioLibrary: [],
     audioCurrentTrack: null,
     audioTimerId: null,
@@ -53,6 +60,9 @@
     audioMinSwitchSec: document.getElementById("audio-min-switch-sec"),
     audioMaxSwitchSec: document.getElementById("audio-max-switch-sec"),
     audioCrossfadeSec: document.getElementById("audio-crossfade-sec"),
+    browsingLevelR: document.getElementById("browsing-level-r"),
+    browsingLevelX: document.getElementById("browsing-level-x"),
+    browsingLevelXXX: document.getElementById("browsing-level-xxx"),
     audioLibraryStatus: document.getElementById("audio-library-status"),
     btnRefreshAudioLibrary: document.getElementById("btn-refresh-audio-library"),
     btnToggleAudio: document.getElementById("btn-toggle-audio"),
@@ -74,6 +84,13 @@
     btnCloseSettings: document.getElementById("btn-close-settings"),
     settingsPanel: document.getElementById("settings-panel"),
     settingsBackdrop: document.getElementById("settings-backdrop"),
+    feedFilters: document.getElementById("feed-filters"),
+    sortControl: document.getElementById("sort-control"),
+    btnSortToggle: document.getElementById("btn-sort-toggle"),
+    sortMenu: document.getElementById("sort-menu"),
+    periodControl: document.getElementById("period-control"),
+    btnPeriodToggle: document.getElementById("btn-period-toggle"),
+    periodMenu: document.getElementById("period-menu"),
     btnShowLikedUsers: document.getElementById("btn-show-liked-users"),
     likedUsersList: document.getElementById("liked-users-list"),
     fixedMeta: document.getElementById("fixed-meta"),
@@ -84,6 +101,8 @@
   const observer = new IntersectionObserver(onIntersect, {
     threshold: [0.65, 0.9]
   });
+  const FEED_SORT_OPTIONS = ["Most Reactions", "Most Comments", "Most Collected", "Newest", "Oldest"];
+  const FEED_PERIOD_OPTIONS = ["Day", "Week", "Month", "Year", "AllTime"];
   const VIDEO_KEEP_BEHIND = 10;
   const VIDEO_KEEP_AHEAD = 2;
 
@@ -163,6 +182,22 @@
     return String(author || "")
       .trim()
       .toLowerCase();
+  }
+
+  function normalizeFeedSort(value, fallback = "Newest") {
+    const normalized = String(value || "")
+      .trim()
+      .toLowerCase();
+    const match = FEED_SORT_OPTIONS.find((candidate) => candidate.toLowerCase() === normalized);
+    return match || fallback;
+  }
+
+  function normalizeFeedPeriod(value, fallback = "Week") {
+    const normalized = String(value || "")
+      .trim()
+      .toLowerCase();
+    const match = FEED_PERIOD_OPTIONS.find((candidate) => candidate.toLowerCase() === normalized);
+    return match || fallback;
   }
 
   function setHeartButtonState(button, liked, labelBase) {
@@ -628,6 +663,11 @@
       state.audioMinSwitchSec = normalizeAudioSwitchSec(result.settings.audioMinSwitchSec, 15);
       state.audioMaxSwitchSec = normalizeAudioSwitchSec(result.settings.audioMaxSwitchSec, 45);
       state.audioCrossfadeSec = normalizeAudioCrossfadeSec(result.settings.audioCrossfadeSec, 2);
+      state.browsingLevelR = Boolean(result.settings.browsingLevelR);
+      state.browsingLevelX = Boolean(result.settings.browsingLevelX);
+      state.browsingLevelXXX = Boolean(result.settings.browsingLevelXXX);
+      state.feedSort = normalizeFeedSort(result.settings.feedSort, "Newest");
+      state.feedPeriod = normalizeFeedPeriod(result.settings.feedPeriod, "Week");
       if (state.audioMaxSwitchSec < state.audioMinSwitchSec) {
         const tmp = state.audioMinSwitchSec;
         state.audioMinSwitchSec = state.audioMaxSwitchSec;
@@ -638,13 +678,22 @@
       refs.audioMinSwitchSec.value = String(state.audioMinSwitchSec);
       refs.audioMaxSwitchSec.value = String(state.audioMaxSwitchSec);
       refs.audioCrossfadeSec.value = String(state.audioCrossfadeSec);
+      refs.browsingLevelR.checked = state.browsingLevelR;
+      refs.browsingLevelX.checked = state.browsingLevelX;
+      refs.browsingLevelXXX.checked = state.browsingLevelXXX;
       syncAudioControls();
+      syncSortControl();
+      syncPeriodControl();
     } catch (err) {
       showToast(`Settings load failed: ${err.message}`, true);
     }
   }
 
   async function saveSettings() {
+    const browsingChanged =
+      state.browsingLevelR !== refs.browsingLevelR.checked ||
+      state.browsingLevelX !== refs.browsingLevelX.checked ||
+      state.browsingLevelXXX !== refs.browsingLevelXXX.checked;
     const prefetchDepth = Number.parseInt(refs.prefetchDepth.value, 10);
     const lowDiskWarnGb = Number.parseFloat(refs.diskWarn.value);
     const audioMinSwitchSec = normalizeAudioSwitchSec(refs.audioMinSwitchSec.value, state.audioMinSwitchSec);
@@ -653,6 +702,11 @@
     const normalizedAudioMin = Math.min(audioMinSwitchSec, audioMaxSwitchSec);
     const normalizedAudioMax = Math.max(audioMinSwitchSec, audioMaxSwitchSec);
     const audioEnabled = refs.audioEnabled.checked;
+    const browsingLevelR = refs.browsingLevelR.checked;
+    const browsingLevelX = refs.browsingLevelX.checked;
+    const browsingLevelXXX = refs.browsingLevelXXX.checked;
+    const feedSort = state.feedSort;
+    const feedPeriod = state.feedPeriod;
 
     try {
       const result = await api("/api/settings", {
@@ -663,7 +717,12 @@
           audioEnabled,
           audioMinSwitchSec: normalizedAudioMin,
           audioMaxSwitchSec: normalizedAudioMax,
-          audioCrossfadeSec
+          audioCrossfadeSec,
+          browsingLevelR,
+          browsingLevelX,
+          browsingLevelXXX,
+          feedSort,
+          feedPeriod
         })
       });
 
@@ -672,17 +731,32 @@
       state.audioMinSwitchSec = normalizeAudioSwitchSec(result.settings.audioMinSwitchSec, normalizedAudioMin);
       state.audioMaxSwitchSec = normalizeAudioSwitchSec(result.settings.audioMaxSwitchSec, normalizedAudioMax);
       state.audioCrossfadeSec = normalizeAudioCrossfadeSec(result.settings.audioCrossfadeSec, audioCrossfadeSec);
+      state.browsingLevelR = Boolean(result.settings.browsingLevelR);
+      state.browsingLevelX = Boolean(result.settings.browsingLevelX);
+      state.browsingLevelXXX = Boolean(result.settings.browsingLevelXXX);
+      state.feedSort = normalizeFeedSort(result.settings.feedSort, feedSort);
+      state.feedPeriod = normalizeFeedPeriod(result.settings.feedPeriod, feedPeriod);
       refs.prefetchDepth.value = String(result.settings.prefetchDepth);
       refs.audioMinSwitchSec.value = String(state.audioMinSwitchSec);
       refs.audioMaxSwitchSec.value = String(state.audioMaxSwitchSec);
       refs.audioCrossfadeSec.value = String(state.audioCrossfadeSec);
+      refs.browsingLevelR.checked = state.browsingLevelR;
+      refs.browsingLevelX.checked = state.browsingLevelX;
+      refs.browsingLevelXXX.checked = state.browsingLevelXXX;
       syncAudioControls();
+      syncSortControl();
+      syncPeriodControl();
       if (state.audioEnabled) {
         requestAudioSwitch("settings-save", false);
       } else {
         stopAudioPlayback();
       }
-      showToast("Settings saved");
+      if (browsingChanged && state.authValid) {
+        await resetFeedAndLoad();
+        showToast("Settings saved. Feed reloaded");
+      } else {
+        showToast("Settings saved");
+      }
       void refreshStats();
     } catch (err) {
       showToast(`Settings error: ${err.message}`, true);
@@ -800,9 +874,111 @@
     refs.audioMinSwitchSec.value = String(state.audioMinSwitchSec);
     refs.audioMaxSwitchSec.value = String(state.audioMaxSwitchSec);
     refs.audioCrossfadeSec.value = String(state.audioCrossfadeSec);
+    refs.browsingLevelR.checked = state.browsingLevelR;
+    refs.browsingLevelX.checked = state.browsingLevelX;
+    refs.browsingLevelXXX.checked = state.browsingLevelXXX;
     refs.btnToggleAudio.classList.toggle("active", state.audioEnabled);
     refs.btnToggleAudio.setAttribute("aria-pressed", state.audioEnabled ? "true" : "false");
     refs.btnToggleAudio.title = state.audioEnabled ? "Disable background loops" : "Enable background loops";
+  }
+
+  function syncSortControl() {
+    const current = normalizeFeedSort(state.feedSort, "Newest");
+    state.feedSort = current;
+    refs.btnSortToggle.textContent = current;
+    refs.btnSortToggle.title = `Sort: ${current}`;
+    refs.btnSortToggle.setAttribute("aria-label", refs.btnSortToggle.title);
+
+    const items = refs.sortMenu.querySelectorAll(".sort-menu-item");
+    items.forEach((node) => {
+      const option = normalizeFeedSort(node.dataset.sort, "Newest");
+      const active = option === current;
+      node.classList.toggle("active", active);
+      node.setAttribute("aria-checked", active ? "true" : "false");
+    });
+  }
+
+  function setSortMenuOpen(open) {
+    const next = Boolean(open);
+    state.sortMenuOpen = next;
+    refs.sortMenu.classList.toggle("hidden", !next);
+    refs.btnSortToggle.setAttribute("aria-expanded", next ? "true" : "false");
+  }
+
+  function syncPeriodControl() {
+    const current = normalizeFeedPeriod(state.feedPeriod, "Week");
+    state.feedPeriod = current;
+    const buttonLabel = current === "AllTime" ? "All Time" : current;
+    refs.btnPeriodToggle.textContent = buttonLabel;
+    refs.btnPeriodToggle.title = `Period: ${buttonLabel}`;
+    refs.btnPeriodToggle.setAttribute("aria-label", refs.btnPeriodToggle.title);
+
+    const items = refs.periodMenu.querySelectorAll(".period-menu-item");
+    items.forEach((node) => {
+      const option = normalizeFeedPeriod(node.dataset.period, "Week");
+      const active = option === current;
+      node.classList.toggle("active", active);
+      node.setAttribute("aria-checked", active ? "true" : "false");
+    });
+  }
+
+  function setPeriodMenuOpen(open) {
+    const next = Boolean(open);
+    state.periodMenuOpen = next;
+    refs.periodMenu.classList.toggle("hidden", !next);
+    refs.btnPeriodToggle.setAttribute("aria-expanded", next ? "true" : "false");
+  }
+
+  async function applyFeedSort(nextSortRaw) {
+    const nextSort = normalizeFeedSort(nextSortRaw, state.feedSort);
+    if (nextSort === state.feedSort) {
+      setSortMenuOpen(false);
+      return;
+    }
+
+    try {
+      const result = await api("/api/settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          feedSort: nextSort
+        })
+      });
+      state.feedSort = normalizeFeedSort(result.settings.feedSort, nextSort);
+      syncSortControl();
+      setSortMenuOpen(false);
+      if (state.authValid) {
+        await resetFeedAndLoad();
+      }
+      showToast(`Sort: ${state.feedSort}`);
+    } catch (err) {
+      showToast(`Sort update failed: ${err.message}`, true);
+    }
+  }
+
+  async function applyFeedPeriod(nextPeriodRaw) {
+    const nextPeriod = normalizeFeedPeriod(nextPeriodRaw, state.feedPeriod);
+    if (nextPeriod === state.feedPeriod) {
+      setPeriodMenuOpen(false);
+      return;
+    }
+
+    try {
+      const result = await api("/api/settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          feedPeriod: nextPeriod
+        })
+      });
+      state.feedPeriod = normalizeFeedPeriod(result.settings.feedPeriod, nextPeriod);
+      syncPeriodControl();
+      setPeriodMenuOpen(false);
+      if (state.authValid) {
+        await resetFeedAndLoad();
+      }
+      showToast(`Period: ${state.feedPeriod === "AllTime" ? "All Time" : state.feedPeriod}`);
+    } catch (err) {
+      showToast(`Period update failed: ${err.message}`, true);
+    }
   }
 
   function updateAudioLibraryStatus() {
@@ -1524,6 +1700,36 @@
     refs.btnToggleSettings.addEventListener("click", () => toggleSettingsPanel());
     refs.btnCloseSettings.addEventListener("click", () => setSettingsPanelOpen(false));
     refs.settingsBackdrop.addEventListener("click", () => setSettingsPanelOpen(false));
+    refs.btnSortToggle.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setPeriodMenuOpen(false);
+      setSortMenuOpen(!state.sortMenuOpen);
+    });
+    refs.sortMenu.addEventListener("click", (event) => {
+      const target = event.target?.closest?.(".sort-menu-item");
+      if (!target) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      void applyFeedSort(target.dataset.sort);
+    });
+    refs.btnPeriodToggle.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setSortMenuOpen(false);
+      setPeriodMenuOpen(!state.periodMenuOpen);
+    });
+    refs.periodMenu.addEventListener("click", (event) => {
+      const target = event.target?.closest?.(".period-menu-item");
+      if (!target) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      void applyFeedPeriod(target.dataset.period);
+    });
     refs.btnLikeAuthor.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -1569,6 +1775,18 @@
       state.audioCrossfadeSec = normalizeAudioCrossfadeSec(refs.audioCrossfadeSec.value, state.audioCrossfadeSec);
       syncAudioControls();
     });
+    refs.browsingLevelR.addEventListener("change", () => {
+      state.browsingLevelR = refs.browsingLevelR.checked;
+      syncAudioControls();
+    });
+    refs.browsingLevelX.addEventListener("change", () => {
+      state.browsingLevelX = refs.browsingLevelX.checked;
+      syncAudioControls();
+    });
+    refs.browsingLevelXXX.addEventListener("change", () => {
+      state.browsingLevelXXX = refs.browsingLevelXXX.checked;
+      syncAudioControls();
+    });
     refs.autoAdvanceEnabled.addEventListener("change", () => {
       state.autoAdvanceEnabled = refs.autoAdvanceEnabled.checked;
       syncAutoAdvanceControls();
@@ -1583,6 +1801,16 @@
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && state.settingsPanelOpen) {
         setSettingsPanelOpen(false);
+        return;
+      }
+
+      if (event.key === "Escape" && state.sortMenuOpen) {
+        setSortMenuOpen(false);
+        return;
+      }
+
+      if (event.key === "Escape" && state.periodMenuOpen) {
+        setPeriodMenuOpen(false);
         return;
       }
 
@@ -1615,6 +1843,17 @@
         void loadMore();
       }
     });
+    document.addEventListener("click", (event) => {
+      if (!state.sortMenuOpen && !state.periodMenuOpen) {
+        return;
+      }
+      const target = event.target;
+      if (refs.feedFilters.contains(target)) {
+        return;
+      }
+      setSortMenuOpen(false);
+      setPeriodMenuOpen(false);
+    });
   }
 
   async function init() {
@@ -1625,6 +1864,8 @@
     state.autoAdvanceSeconds = normalizeAutoAdvanceSeconds(refs.autoAdvanceSeconds.value);
     syncAutoAdvanceControls();
     syncAudioControls();
+    syncSortControl();
+    syncPeriodControl();
     setFullscreenUi(Boolean(document.fullscreenElement));
     setSettingsPanelOpen(false);
     updateFeedModeUi();
