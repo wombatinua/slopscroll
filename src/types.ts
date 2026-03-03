@@ -41,6 +41,7 @@ export interface Settings {
   audioEnabled: boolean;
   audioMinSwitchSec: number;
   audioMaxSwitchSec: number;
+  audioCrossfadeSec: number;
   audioSwitchOnFeedAdvance: boolean;
 }
 

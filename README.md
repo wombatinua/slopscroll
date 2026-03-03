@@ -67,3 +67,4 @@ npm run dev
 - Cache is indefinite by design; no auto-eviction.
 - Low disk only triggers warnings; downloads are not auto-deleted.
 - Background prefetch depth default: `3` (configurable `0..10`).
+- Audio loop settings include random switch window and crossfade duration (seconds).

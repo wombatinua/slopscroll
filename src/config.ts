@@ -57,6 +57,7 @@ export const defaultConfig: AppConfig = {
     audioEnabled: false,
     audioMinSwitchSec: 15,
     audioMaxSwitchSec: 45,
+    audioCrossfadeSec: 2,
     audioSwitchOnFeedAdvance: false
   },
   civitai: {
@@ -114,6 +115,10 @@ export function loadConfig(): AppConfig {
     audioMaxSwitchSec: toInt(
       process.env.SLOPSCROLL_AUDIO_MAX_SWITCH_SEC,
       localConfig.settings?.audioMaxSwitchSec ?? defaultConfig.settings.audioMaxSwitchSec
+    ),
+    audioCrossfadeSec: toNum(
+      process.env.SLOPSCROLL_AUDIO_CROSSFADE_SEC,
+      localConfig.settings?.audioCrossfadeSec ?? defaultConfig.settings.audioCrossfadeSec
     ),
     audioSwitchOnFeedAdvance:
       (process.env.SLOPSCROLL_AUDIO_SWITCH_ON_FEED_ADVANCE ??

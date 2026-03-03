@@ -20,11 +20,15 @@
     audioEnabled: false,
     audioMinSwitchSec: 15,
     audioMaxSwitchSec: 45,
+    audioCrossfadeSec: 2,
     audioSwitchOnFeedAdvance: false,
     audioLibrary: [],
     audioCurrentTrack: null,
     audioTimerId: null,
-    audioPlayer: null,
+    audioPlayers: null,
+    audioActivePlayerIndex: -1,
+    audioFadeTimerId: null,
+    audioFadeResolver: null,
     audioSwitchInFlight: false,
     audioAutoplayBlocked: false,
     selectedAuthor: null,
@@ -43,6 +47,7 @@
     audioEnabled: document.getElementById("audio-enabled"),
     audioMinSwitchSec: document.getElementById("audio-min-switch-sec"),
     audioMaxSwitchSec: document.getElementById("audio-max-switch-sec"),
+    audioCrossfadeSec: document.getElementById("audio-crossfade-sec"),
     audioSwitchOnFeedAdvance: document.getElementById("audio-switch-on-advance"),
     audioLibraryStatus: document.getElementById("audio-library-status"),
     btnRefreshAudioLibrary: document.getElementById("btn-refresh-audio-library"),
@@ -345,6 +350,7 @@
       state.audioEnabled = Boolean(result.settings.audioEnabled);
       state.audioMinSwitchSec = normalizeAudioSwitchSec(result.settings.audioMinSwitchSec, 15);
       state.audioMaxSwitchSec = normalizeAudioSwitchSec(result.settings.audioMaxSwitchSec, 45);
+      state.audioCrossfadeSec = normalizeAudioCrossfadeSec(result.settings.audioCrossfadeSec, 2);
       if (state.audioMaxSwitchSec < state.audioMinSwitchSec) {
         const tmp = state.audioMinSwitchSec;
         state.audioMinSwitchSec = state.audioMaxSwitchSec;
@@ -355,6 +361,7 @@
       refs.diskWarn.value = String(result.settings.lowDiskWarnGb);
       refs.audioMinSwitchSec.value = String(state.audioMinSwitchSec);
       refs.audioMaxSwitchSec.value = String(state.audioMaxSwitchSec);
+      refs.audioCrossfadeSec.value = String(state.audioCrossfadeSec);
       refs.audioSwitchOnFeedAdvance.checked = state.audioSwitchOnFeedAdvance;
       syncAudioControls();
     } catch (err) {
@@ -367,6 +374,7 @@
     const lowDiskWarnGb = Number.parseFloat(refs.diskWarn.value);
     const audioMinSwitchSec = normalizeAudioSwitchSec(refs.audioMinSwitchSec.value, state.audioMinSwitchSec);
     const audioMaxSwitchSec = normalizeAudioSwitchSec(refs.audioMaxSwitchSec.value, state.audioMaxSwitchSec);
+    const audioCrossfadeSec = normalizeAudioCrossfadeSec(refs.audioCrossfadeSec.value, state.audioCrossfadeSec);
     const normalizedAudioMin = Math.min(audioMinSwitchSec, audioMaxSwitchSec);
     const normalizedAudioMax = Math.max(audioMinSwitchSec, audioMaxSwitchSec);
     const audioEnabled = refs.audioEnabled.checked;
@@ -381,6 +389,7 @@
           audioEnabled,
           audioMinSwitchSec: normalizedAudioMin,
           audioMaxSwitchSec: normalizedAudioMax,
+          audioCrossfadeSec,
           audioSwitchOnFeedAdvance
         })
       });
@@ -389,10 +398,12 @@
       state.audioEnabled = Boolean(result.settings.audioEnabled);
       state.audioMinSwitchSec = normalizeAudioSwitchSec(result.settings.audioMinSwitchSec, normalizedAudioMin);
       state.audioMaxSwitchSec = normalizeAudioSwitchSec(result.settings.audioMaxSwitchSec, normalizedAudioMax);
+      state.audioCrossfadeSec = normalizeAudioCrossfadeSec(result.settings.audioCrossfadeSec, audioCrossfadeSec);
       state.audioSwitchOnFeedAdvance = Boolean(result.settings.audioSwitchOnFeedAdvance);
       refs.prefetchDepth.value = String(result.settings.prefetchDepth);
       refs.audioMinSwitchSec.value = String(state.audioMinSwitchSec);
       refs.audioMaxSwitchSec.value = String(state.audioMaxSwitchSec);
+      refs.audioCrossfadeSec.value = String(state.audioCrossfadeSec);
       refs.audioSwitchOnFeedAdvance.checked = state.audioSwitchOnFeedAdvance;
       syncAudioControls();
       if (state.audioEnabled) {
@@ -514,10 +525,19 @@
     return fallback;
   }
 
+  function normalizeAudioCrossfadeSec(value, fallback) {
+    const parsed = Number.parseFloat(String(value));
+    if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 30) {
+      return Math.round(parsed * 10) / 10;
+    }
+    return fallback;
+  }
+
   function syncAudioControls() {
     refs.audioEnabled.checked = state.audioEnabled;
     refs.audioMinSwitchSec.value = String(state.audioMinSwitchSec);
     refs.audioMaxSwitchSec.value = String(state.audioMaxSwitchSec);
+    refs.audioCrossfadeSec.value = String(state.audioCrossfadeSec);
     refs.audioSwitchOnFeedAdvance.checked = state.audioSwitchOnFeedAdvance;
     refs.btnToggleAudio.classList.toggle("active", state.audioEnabled);
     refs.btnToggleAudio.setAttribute("aria-pressed", state.audioEnabled ? "true" : "false");
@@ -554,22 +574,27 @@
     }
   }
 
-  function ensureAudioPlayer() {
-    if (state.audioPlayer) {
-      return state.audioPlayer;
+  function ensureAudioPlayers() {
+    if (state.audioPlayers) {
+      return state.audioPlayers;
     }
 
-    const audio = new Audio();
-    audio.preload = "auto";
-    audio.loop = true;
-    audio.addEventListener("error", () => {
-      if (!state.audioEnabled) {
-        return;
-      }
-      void switchAudioTrack("error", true);
-    });
-    state.audioPlayer = audio;
-    return audio;
+    const createPlayer = () => {
+      const audio = new Audio();
+      audio.preload = "auto";
+      audio.loop = true;
+      audio.volume = 1;
+      audio.addEventListener("error", () => {
+        if (!state.audioEnabled) {
+          return;
+        }
+        void switchAudioTrack("error", true);
+      });
+      return audio;
+    };
+
+    state.audioPlayers = [createPlayer(), createPlayer()];
+    return state.audioPlayers;
   }
 
   function clearAudioSwitchTimer() {
@@ -579,17 +604,78 @@
     }
   }
 
-  function stopAudioPlayback() {
-    clearAudioSwitchTimer();
-    const audio = state.audioPlayer;
-    state.audioAutoplayBlocked = false;
-    if (!audio) {
-      return;
+  function clearAudioFadeTimer(resolvePending = false) {
+    if (state.audioFadeTimerId !== null) {
+      clearInterval(state.audioFadeTimerId);
+      state.audioFadeTimerId = null;
     }
+    if (resolvePending && typeof state.audioFadeResolver === "function") {
+      const resolver = state.audioFadeResolver;
+      state.audioFadeResolver = null;
+      resolver();
+    }
+  }
+
+  function stopAndResetAudioPlayer(audio) {
     audio.pause();
     audio.currentTime = 0;
+    audio.volume = 1;
     audio.removeAttribute("src");
     audio.load();
+  }
+
+  async function crossfadePlayers(fromAudio, toAudio) {
+    clearAudioFadeTimer(true);
+
+    const crossfadeMs = Math.max(0, Math.round(state.audioCrossfadeSec * 1000));
+    if (!fromAudio || crossfadeMs <= 0 || fromAudio.paused) {
+      toAudio.volume = 1;
+      if (fromAudio && fromAudio !== toAudio) {
+        stopAndResetAudioPlayer(fromAudio);
+      }
+      return;
+    }
+
+    fromAudio.volume = Math.max(0, Math.min(1, Number(fromAudio.volume) || 1));
+    toAudio.volume = Math.max(0, Math.min(1, Number(toAudio.volume) || 0));
+
+    await new Promise((resolve) => {
+      const startedAt = Date.now();
+      const startFromVolume = fromAudio.volume;
+      const startToVolume = toAudio.volume;
+      state.audioFadeResolver = () => resolve();
+      const step = () => {
+        const elapsed = Date.now() - startedAt;
+        const progress = Math.max(0, Math.min(1, elapsed / crossfadeMs));
+        fromAudio.volume = Math.max(0, startFromVolume * (1 - progress));
+        toAudio.volume = Math.min(1, startToVolume + (1 - startToVolume) * progress);
+
+        if (progress >= 1) {
+          state.audioFadeResolver = null;
+          clearAudioFadeTimer(false);
+          stopAndResetAudioPlayer(fromAudio);
+          toAudio.volume = 1;
+          resolve();
+        }
+      };
+
+      step();
+      state.audioFadeTimerId = setInterval(step, 40);
+    });
+  }
+
+  function stopAudioPlayback() {
+    clearAudioSwitchTimer();
+    clearAudioFadeTimer(true);
+    state.audioAutoplayBlocked = false;
+    const players = ensureAudioPlayers();
+    if (!players) {
+      return;
+    }
+    for (const player of players) {
+      stopAndResetAudioPlayer(player);
+    }
+    state.audioActivePlayerIndex = -1;
     state.audioCurrentTrack = null;
     state.audioSwitchInFlight = false;
   }
@@ -645,7 +731,11 @@
         return false;
       }
 
-      const audio = ensureAudioPlayer();
+      const players = ensureAudioPlayers();
+      const currentIndex = state.audioActivePlayerIndex;
+      const currentAudio = currentIndex >= 0 ? players[currentIndex] : null;
+      const nextIndex = currentIndex >= 0 ? (currentIndex === 0 ? 1 : 0) : 0;
+      const nextAudio = players[nextIndex];
       const attempts = Math.max(1, state.audioLibrary.length);
       const triedNames = new Set();
       for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -656,10 +746,13 @@
         triedNames.add(nextTrack.name);
 
         const targetUrl = `${nextTrack.url}?_ts=${encodeURIComponent(nextTrack.updatedAt ?? "")}`;
-        audio.src = targetUrl;
+        nextAudio.src = targetUrl;
+        nextAudio.volume = currentAudio ? 0 : 1;
         try {
-          await audio.play();
+          await nextAudio.play();
+          await crossfadePlayers(currentAudio, nextAudio);
           state.audioAutoplayBlocked = false;
+          state.audioActivePlayerIndex = nextIndex;
           state.audioCurrentTrack = nextTrack;
           scheduleAudioSwitch();
           return true;
@@ -1084,6 +1177,10 @@
       if (state.audioEnabled) {
         scheduleAudioSwitch();
       }
+    });
+    refs.audioCrossfadeSec.addEventListener("change", () => {
+      state.audioCrossfadeSec = normalizeAudioCrossfadeSec(refs.audioCrossfadeSec.value, state.audioCrossfadeSec);
+      syncAudioControls();
     });
     refs.audioSwitchOnFeedAdvance.addEventListener("change", () => {
       state.audioSwitchOnFeedAdvance = refs.audioSwitchOnFeedAdvance.checked;

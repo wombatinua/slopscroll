@@ -183,16 +183,19 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
       audioEnabled?: boolean;
       audioMinSwitchSec?: number;
       audioMaxSwitchSec?: number;
+      audioCrossfadeSec?: number;
       audioSwitchOnFeedAdvance?: boolean;
     };
   }>("/api/settings", async (req, reply) => {
     const existing = deps.db.getSettings(deps.config.settings);
     const requestedAudioMin = Number(req.body?.audioMinSwitchSec ?? existing.audioMinSwitchSec);
     const requestedAudioMax = Number(req.body?.audioMaxSwitchSec ?? existing.audioMaxSwitchSec);
+    const requestedAudioCrossfade = Number(req.body?.audioCrossfadeSec ?? existing.audioCrossfadeSec);
     const audioMinSwitchSec = clamp(Math.trunc(requestedAudioMin), 1, 3600);
     const audioMaxSwitchSec = clamp(Math.trunc(requestedAudioMax), 1, 3600);
     const normalizedAudioMin = Math.min(audioMinSwitchSec, audioMaxSwitchSec);
     const normalizedAudioMax = Math.max(audioMinSwitchSec, audioMaxSwitchSec);
+    const normalizedAudioCrossfade = Math.max(0, Math.min(30, requestedAudioCrossfade));
 
     const next = {
       prefetchDepth: clamp(Number(req.body?.prefetchDepth ?? existing.prefetchDepth), 0, 10),
@@ -200,6 +203,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
       audioEnabled: Boolean(req.body?.audioEnabled ?? existing.audioEnabled),
       audioMinSwitchSec: normalizedAudioMin,
       audioMaxSwitchSec: normalizedAudioMax,
+      audioCrossfadeSec: normalizedAudioCrossfade,
       audioSwitchOnFeedAdvance: Boolean(req.body?.audioSwitchOnFeedAdvance ?? existing.audioSwitchOnFeedAdvance)
     };
 
@@ -210,6 +214,10 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
     if (!Number.isFinite(requestedAudioMin) || !Number.isFinite(requestedAudioMax)) {
       reply.code(400);
       return { ok: false, error: "audioMinSwitchSec and audioMaxSwitchSec must be numbers" };
+    }
+    if (!Number.isFinite(requestedAudioCrossfade)) {
+      reply.code(400);
+      return { ok: false, error: "audioCrossfadeSec must be a number" };
     }
 
     deps.db.setSettings(next);

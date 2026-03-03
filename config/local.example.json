@@ -9,6 +9,7 @@
     "audioEnabled": false,
     "audioMinSwitchSec": 15,
     "audioMaxSwitchSec": 45,
+    "audioCrossfadeSec": 2,
     "audioSwitchOnFeedAdvance": false
   },
   "civitai": {

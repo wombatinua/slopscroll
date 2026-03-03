@@ -256,7 +256,7 @@ export class AppDb {
   getSettings(defaults: Settings): Settings {
     const rows = this.db
       .prepare(
-        `SELECT key, value FROM settings WHERE key IN ('prefetchDepth', 'lowDiskWarnGb', 'audioEnabled', 'audioMinSwitchSec', 'audioMaxSwitchSec', 'audioSwitchOnFeedAdvance')`
+        `SELECT key, value FROM settings WHERE key IN ('prefetchDepth', 'lowDiskWarnGb', 'audioEnabled', 'audioMinSwitchSec', 'audioMaxSwitchSec', 'audioCrossfadeSec', 'audioSwitchOnFeedAdvance')`
       )
       .all() as Array<{ key: string; value: string }>;
 
@@ -289,6 +289,12 @@ export class AppDb {
           output.audioMaxSwitchSec = parsed;
         }
       }
+      if (row.key === "audioCrossfadeSec") {
+        const parsed = Number.parseFloat(row.value);
+        if (Number.isFinite(parsed)) {
+          output.audioCrossfadeSec = parsed;
+        }
+      }
       if (row.key === "audioSwitchOnFeedAdvance") {
         output.audioSwitchOnFeedAdvance = row.value.toLowerCase() === "true";
       }
@@ -312,6 +318,7 @@ export class AppDb {
       stmt.run("audioEnabled", String(settings.audioEnabled), ts);
       stmt.run("audioMinSwitchSec", String(settings.audioMinSwitchSec), ts);
       stmt.run("audioMaxSwitchSec", String(settings.audioMaxSwitchSec), ts);
+      stmt.run("audioCrossfadeSec", String(settings.audioCrossfadeSec), ts);
       stmt.run("audioSwitchOnFeedAdvance", String(settings.audioSwitchOnFeedAdvance), ts);
       this.db.exec("COMMIT;");
     } catch (error) {
