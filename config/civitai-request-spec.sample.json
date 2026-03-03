@@ -1,0 +1,20 @@
+{
+  "endpoint": "https://civitai.com/api/v1/videos",
+  "method": "GET",
+  "query": {
+    "limit": "20"
+  },
+  "headers": {
+    "Accept": "application/json, text/plain, */*",
+    "Referer": "https://civitai.com/videos"
+  },
+  "cursorParam": "cursor",
+  "limitParam": "limit",
+  "itemPaths": ["items", "data.items", "videos"],
+  "cursorPaths": ["metadata.nextCursor", "nextCursor", "pagination.nextCursor"],
+  "mediaUrlPaths": ["videoUrl", "mediaUrl", "url", "files.0.url"],
+  "pageUrlPaths": ["url", "pageUrl", "postUrl"],
+  "authorPaths": ["author.username", "creator.username", "username"],
+  "durationPaths": ["duration", "meta.duration"],
+  "createdAtPaths": ["createdAt", "publishedAt"]
+}

@@ -1,0 +1,14 @@
+{
+  "host": "0.0.0.0",
+  "port": 3579,
+  "dataDir": "./data",
+  "settings": {
+    "prefetchDepth": 3,
+    "lowDiskWarnGb": 2
+  },
+  "civitai": {
+    "requestTimeoutMs": 15000,
+    "downloadTimeoutMs": 60000,
+    "maxDownloadRetries": 3
+  }
+}

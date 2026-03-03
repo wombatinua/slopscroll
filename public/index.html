@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SlopScroll</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg-layer"></div>
+
+    <header class="topbar">
+      <div class="brand">
+        <h1>SlopScroll</h1>
+        <p>Cache-first Civitai scroller</p>
+      </div>
+      <div class="actions">
+        <span id="feed-mode-label" class="mode-label">General Feed</span>
+        <button id="btn-back-general" type="button" class="hidden">Back to General</button>
+        <button id="btn-auth-status" type="button">Check Auth</button>
+        <button id="btn-reload-spec" type="button">Reload Spec</button>
+        <button id="btn-refresh-stats" type="button">Stats</button>
+      </div>
+    </header>
+
+    <aside class="control-panel">
+      <section>
+        <h2>Auth Cookies</h2>
+        <textarea id="cookie-input" placeholder="Paste full Cookie header from authenticated civitai.com session"></textarea>
+        <div class="row">
+          <button id="btn-save-cookies" type="button">Save Cookies</button>
+          <span id="auth-state" class="status-pill">unknown</span>
+        </div>
+      </section>
+
+      <section>
+        <h2>Settings</h2>
+        <label for="prefetch-depth">Prefetch depth (0-10)</label>
+        <input id="prefetch-depth" type="number" min="0" max="10" value="3" />
+        <label for="disk-warn">Low disk warning GB</label>
+        <input id="disk-warn" type="number" min="0" step="0.5" value="2" />
+        <button id="btn-save-settings" type="button">Save Settings</button>
+      </section>
+
+      <section>
+        <h2>Cache</h2>
+        <pre id="stats-output">loading...</pre>
+      </section>
+    </aside>
+
+    <main id="feed" class="feed"></main>
+
+    <div id="overlay-auth" class="overlay hidden">
+      <div class="overlay-card">
+        <h3>Auth Required</h3>
+        <p>Import valid Civitai cookies to start loading videos.</p>
+      </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <template id="video-card-template">
+      <section class="video-card">
+        <video playsinline muted loop preload="metadata"></video>
+        <div class="meta">
+          <div class="meta-main"></div>
+          <div class="meta-sub"></div>
+        </div>
+        <div class="error hidden"></div>
+      </section>
+    </template>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>
