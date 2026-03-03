@@ -32,6 +32,7 @@
     audioFadeResolver: null,
     audioSwitchInFlight: false,
     audioAutoplayBlocked: false,
+    authorCountersKey: "",
     selectedAuthor: null,
     selectedAuthorTotal: null,
     selectedAuthorTotalLoading: false,
@@ -64,6 +65,7 @@
     navAuthor: document.getElementById("nav-author"),
     navSeparator: document.getElementById("nav-separator"),
     btnToggleFullscreen: document.getElementById("btn-toggle-fullscreen"),
+    btnExitFullscreen: document.getElementById("btn-exit-fullscreen"),
     btnToggleSettings: document.getElementById("btn-toggle-settings"),
     btnCloseSettings: document.getElementById("btn-close-settings"),
     settingsPanel: document.getElementById("settings-panel"),
@@ -262,6 +264,55 @@
     }
   }
 
+  function getSelectedAuthorTotalLabel() {
+    if (Number.isInteger(state.selectedAuthorTotal)) {
+      return state.selectedAuthorTotalComplete ? String(state.selectedAuthorTotal) : `${state.selectedAuthorTotal}+`;
+    }
+    return "...";
+  }
+
+  function isSelectedAuthorItem(item) {
+    return Boolean(state.selectedAuthor && item?.author === state.selectedAuthor);
+  }
+
+  function refreshRenderedAuthorCounters() {
+    const totalLabel = getSelectedAuthorTotalLabel();
+    const cards = refs.feed.querySelectorAll(".video-card");
+    cards.forEach((card) => {
+      const idx = Number.parseInt(card.dataset.idx || "-1", 10);
+      if (!Number.isInteger(idx) || idx < 0 || idx >= state.items.length) {
+        return;
+      }
+
+      const item = state.items[idx];
+      const main = card.querySelector(".meta-main");
+      if (!main) {
+        return;
+      }
+
+      let counter = main.querySelector(".author-counter");
+      if (isSelectedAuthorItem(item)) {
+        if (!counter) {
+          counter = document.createElement("span");
+          counter.className = "author-counter";
+          main.appendChild(counter);
+        }
+        counter.textContent = `(${idx + 1}/${totalLabel})`;
+      } else if (counter) {
+        counter.remove();
+      }
+    });
+  }
+
+  function syncAuthorCounters() {
+    const key = state.selectedAuthor ? `${state.selectedAuthor}|${getSelectedAuthorTotalLabel()}` : "";
+    if (state.authorCountersKey === key) {
+      return;
+    }
+    state.authorCountersKey = key;
+    refreshRenderedAuthorCounters();
+  }
+
   function renderItem(item, index) {
     const node = refs.tpl.content.firstElementChild.cloneNode(true);
     node.dataset.videoId = item.id;
@@ -287,10 +338,37 @@
         void switchToAuthor(item.author);
       });
       main.appendChild(authorBtn);
+      if (isSelectedAuthorItem(item)) {
+        const counter = document.createElement("span");
+        counter.className = "author-counter";
+        counter.textContent = `(${index + 1}/${getSelectedAuthorTotalLabel()})`;
+        main.appendChild(counter);
+      }
     } else {
       main.textContent = `Video ${item.id.slice(0, 8)}`;
     }
-    sub.textContent = item.pageUrl || item.mediaUrl;
+
+    const sourceUrl = item.pageUrl || item.mediaUrl;
+    sub.innerHTML = "";
+    if (sourceUrl) {
+      try {
+        const source = new URL(sourceUrl);
+        if (source.protocol === "http:" || source.protocol === "https:") {
+          const link = document.createElement("a");
+          link.className = "meta-link";
+          link.href = source.toString();
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.textContent = source.toString();
+          link.title = source.toString();
+          sub.appendChild(link);
+        } else {
+          sub.textContent = sourceUrl;
+        }
+      } catch {
+        sub.textContent = sourceUrl;
+      }
+    }
 
     video.addEventListener("error", () => {
       const err = node.querySelector(".error");
@@ -938,6 +1016,9 @@
     const exitText = state.isIosLike ? "Exit focus mode" : "Exit fullscreen";
     refs.btnToggleFullscreen.title = state.fullscreenActive ? exitText : enterText;
     refs.btnToggleFullscreen.setAttribute("aria-label", refs.btnToggleFullscreen.title);
+    refs.btnExitFullscreen.classList.toggle("hidden", !state.fullscreenActive);
+    refs.btnExitFullscreen.title = exitText;
+    refs.btnExitFullscreen.setAttribute("aria-label", exitText);
 
     if (state.fullscreenActive) {
       setSettingsPanelOpen(false);
@@ -959,6 +1040,18 @@
   async function exitFullscreen() {
     if (document.fullscreenElement && document.exitFullscreen) {
       await document.exitFullscreen();
+    }
+  }
+
+  async function closeFullscreenMode() {
+    if (state.pseudoFullscreenActive) {
+      state.pseudoFullscreenActive = false;
+      setFullscreenUi(Boolean(document.fullscreenElement));
+      return;
+    }
+
+    if (document.fullscreenElement) {
+      await exitFullscreen();
     }
   }
 
@@ -989,19 +1082,14 @@
 
   function updateFeedModeUi() {
     if (state.selectedAuthor) {
-      const current = state.activeIndex >= 0 ? state.activeIndex + 1 : 0;
-      const total = Number.isInteger(state.selectedAuthorTotal)
-        ? state.selectedAuthorTotalComplete
-          ? String(state.selectedAuthorTotal)
-          : `${state.selectedAuthorTotal}+`
-        : "...";
       refs.navVideos.classList.remove("active");
       refs.navVideos.removeAttribute("aria-current");
       refs.navSeparator.classList.remove("hidden");
       refs.navAuthor.classList.remove("hidden");
       refs.navAuthor.classList.add("active");
       refs.navAuthor.setAttribute("aria-current", "page");
-      refs.navAuthor.textContent = `@${state.selectedAuthor} ${current}/${total}`;
+      refs.navAuthor.textContent = `@${state.selectedAuthor}`;
+      syncAuthorCounters();
       return;
     }
 
@@ -1011,6 +1099,7 @@
     refs.navAuthor.classList.add("hidden");
     refs.navAuthor.classList.remove("active");
     refs.navAuthor.removeAttribute("aria-current");
+    syncAuthorCounters();
   }
 
   async function refreshAuthorTotal(authorRaw) {
@@ -1218,6 +1307,7 @@
       showToast(state.autoAdvanceEnabled ? `Auto-advance enabled (${state.autoAdvanceSeconds}s)` : "Auto-advance disabled");
     });
     refs.btnToggleFullscreen.addEventListener("click", () => void toggleFullscreen());
+    refs.btnExitFullscreen.addEventListener("click", () => void closeFullscreenMode());
     refs.btnToggleSettings.addEventListener("click", () => toggleSettingsPanel());
     refs.btnCloseSettings.addEventListener("click", () => setSettingsPanelOpen(false));
     refs.settingsBackdrop.addEventListener("click", () => setSettingsPanelOpen(false));
@@ -1285,8 +1375,7 @@
       }
 
       if (event.key === "Escape" && state.pseudoFullscreenActive) {
-        state.pseudoFullscreenActive = false;
-        setFullscreenUi(Boolean(document.fullscreenElement));
+        void closeFullscreenMode();
         return;
       }
 
