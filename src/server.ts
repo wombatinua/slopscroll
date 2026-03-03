@@ -11,12 +11,14 @@ import { CivitaiClient } from "./civitai/client";
 import { FeedService } from "./services/feedService";
 import { CacheService } from "./services/cacheService";
 import { PrefetchService } from "./services/prefetchService";
+import { AudioLibraryService } from "./services/audioLibraryService";
 import { registerApiRoutes } from "./routes/api";
 
 async function bootstrap(): Promise<void> {
   const config = loadConfig();
 
   ensureDir(config.dataDir);
+  ensureDir(config.mediaDir);
   ensureDir(config.cacheVideosDir);
   ensureDir(config.cacheThumbsDir);
   ensureDir(path.dirname(config.sessionPath));
@@ -32,6 +34,7 @@ async function bootstrap(): Promise<void> {
   const feedService = new FeedService(db, sessionStore, civitaiClient);
   const cacheService = new CacheService(db, config, sessionStore, civitaiClient);
   const prefetchService = new PrefetchService(feedService, cacheService);
+  const audioLibraryService = new AudioLibraryService(config.mediaDir);
 
   const app = Fastify({
     logger: false,
@@ -54,7 +57,8 @@ async function bootstrap(): Promise<void> {
     civitaiClient,
     feedService,
     cacheService,
-    prefetchService
+    prefetchService,
+    audioLibraryService
   });
 
   app.addHook("onClose", async () => {
@@ -73,6 +77,7 @@ async function bootstrap(): Promise<void> {
     port: config.port,
     host: config.host,
     staticDir: config.staticDir,
+    mediaDir: config.mediaDir,
     hasCookies: sessionExists,
     hasRequestSpec: Boolean(requestSpec)
   });

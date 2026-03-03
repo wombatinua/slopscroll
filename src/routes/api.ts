@@ -6,6 +6,7 @@ import { CivitaiClient } from "../civitai/client";
 import { FeedService } from "../services/feedService";
 import { CacheService } from "../services/cacheService";
 import { PrefetchService } from "../services/prefetchService";
+import { AudioLibraryService } from "../services/audioLibraryService";
 import type { AppConfig } from "../config";
 import { loadRequestSpec } from "../config";
 
@@ -17,6 +18,7 @@ interface Dependencies {
   feedService: FeedService;
   cacheService: CacheService;
   prefetchService: PrefetchService;
+  audioLibraryService: AudioLibraryService;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -174,16 +176,40 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
     };
   });
 
-  app.put<{ Body: { prefetchDepth?: number; lowDiskWarnGb?: number } }>("/api/settings", async (req, reply) => {
+  app.put<{
+    Body: {
+      prefetchDepth?: number;
+      lowDiskWarnGb?: number;
+      audioEnabled?: boolean;
+      audioMinSwitchSec?: number;
+      audioMaxSwitchSec?: number;
+      audioSwitchOnFeedAdvance?: boolean;
+    };
+  }>("/api/settings", async (req, reply) => {
     const existing = deps.db.getSettings(deps.config.settings);
+    const requestedAudioMin = Number(req.body?.audioMinSwitchSec ?? existing.audioMinSwitchSec);
+    const requestedAudioMax = Number(req.body?.audioMaxSwitchSec ?? existing.audioMaxSwitchSec);
+    const audioMinSwitchSec = clamp(Math.trunc(requestedAudioMin), 1, 3600);
+    const audioMaxSwitchSec = clamp(Math.trunc(requestedAudioMax), 1, 3600);
+    const normalizedAudioMin = Math.min(audioMinSwitchSec, audioMaxSwitchSec);
+    const normalizedAudioMax = Math.max(audioMinSwitchSec, audioMaxSwitchSec);
+
     const next = {
       prefetchDepth: clamp(Number(req.body?.prefetchDepth ?? existing.prefetchDepth), 0, 10),
-      lowDiskWarnGb: Math.max(0, Number(req.body?.lowDiskWarnGb ?? existing.lowDiskWarnGb))
+      lowDiskWarnGb: Math.max(0, Number(req.body?.lowDiskWarnGb ?? existing.lowDiskWarnGb)),
+      audioEnabled: Boolean(req.body?.audioEnabled ?? existing.audioEnabled),
+      audioMinSwitchSec: normalizedAudioMin,
+      audioMaxSwitchSec: normalizedAudioMax,
+      audioSwitchOnFeedAdvance: Boolean(req.body?.audioSwitchOnFeedAdvance ?? existing.audioSwitchOnFeedAdvance)
     };
 
     if (!Number.isFinite(next.lowDiskWarnGb)) {
       reply.code(400);
       return { ok: false, error: "lowDiskWarnGb must be a number" };
+    }
+    if (!Number.isFinite(requestedAudioMin) || !Number.isFinite(requestedAudioMax)) {
+      reply.code(400);
+      return { ok: false, error: "audioMinSwitchSec and audioMaxSwitchSec must be numbers" };
     }
 
     deps.db.setSettings(next);
@@ -207,6 +233,31 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
       cacheDir: deps.config.cacheVideosDir,
       specConfigured: fs.existsSync(deps.config.requestSpecPath)
     };
+  });
+
+  app.get("/api/audio/library", async () => {
+    const files = await deps.audioLibraryService.listLibrary();
+    return {
+      ok: true,
+      files,
+      mediaDir: deps.config.mediaDir
+    };
+  });
+
+  app.get<{ Params: { name: string } }>("/api/audio/file/:name", async (req, reply) => {
+    const file = await deps.audioLibraryService.resolveAudioFile(req.params.name);
+    if (!file) {
+      reply.code(404);
+      return {
+        ok: false,
+        error: "Audio file not found"
+      };
+    }
+
+    reply.header("Content-Type", file.mimeType);
+    reply.header("Content-Length", String(file.size));
+    reply.header("Cache-Control", "public, max-age=3600");
+    return reply.send(fs.createReadStream(file.path));
   });
 
   app.post<{ Body: { confirm?: boolean } }>("/api/cache/flush", async (req, reply) => {

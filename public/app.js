@@ -17,6 +17,16 @@
     autoAdvanceEnabled: false,
     autoAdvanceSeconds: 5,
     autoAdvanceTimerId: null,
+    audioEnabled: false,
+    audioMinSwitchSec: 15,
+    audioMaxSwitchSec: 45,
+    audioSwitchOnFeedAdvance: false,
+    audioLibrary: [],
+    audioCurrentTrack: null,
+    audioTimerId: null,
+    audioPlayer: null,
+    audioSwitchInFlight: false,
+    audioAutoplayBlocked: false,
     selectedAuthor: null,
     selectedAuthorTotal: null,
     selectedAuthorTotalLoading: false,
@@ -30,6 +40,13 @@
     authState: document.getElementById("auth-state"),
     cookieInput: document.getElementById("cookie-input"),
     prefetchDepth: document.getElementById("prefetch-depth"),
+    audioEnabled: document.getElementById("audio-enabled"),
+    audioMinSwitchSec: document.getElementById("audio-min-switch-sec"),
+    audioMaxSwitchSec: document.getElementById("audio-max-switch-sec"),
+    audioSwitchOnFeedAdvance: document.getElementById("audio-switch-on-advance"),
+    audioLibraryStatus: document.getElementById("audio-library-status"),
+    btnRefreshAudioLibrary: document.getElementById("btn-refresh-audio-library"),
+    btnToggleAudio: document.getElementById("btn-toggle-audio"),
     autoAdvanceEnabled: document.getElementById("auto-advance-enabled"),
     autoAdvanceSeconds: document.getElementById("auto-advance-seconds"),
     btnToggleAutoAdvance: document.getElementById("btn-toggle-autoadvance"),
@@ -325,8 +342,21 @@
     try {
       const result = await api("/api/settings");
       state.prefetchDepth = result.settings.prefetchDepth;
+      state.audioEnabled = Boolean(result.settings.audioEnabled);
+      state.audioMinSwitchSec = normalizeAudioSwitchSec(result.settings.audioMinSwitchSec, 15);
+      state.audioMaxSwitchSec = normalizeAudioSwitchSec(result.settings.audioMaxSwitchSec, 45);
+      if (state.audioMaxSwitchSec < state.audioMinSwitchSec) {
+        const tmp = state.audioMinSwitchSec;
+        state.audioMinSwitchSec = state.audioMaxSwitchSec;
+        state.audioMaxSwitchSec = tmp;
+      }
+      state.audioSwitchOnFeedAdvance = Boolean(result.settings.audioSwitchOnFeedAdvance);
       refs.prefetchDepth.value = String(result.settings.prefetchDepth);
       refs.diskWarn.value = String(result.settings.lowDiskWarnGb);
+      refs.audioMinSwitchSec.value = String(state.audioMinSwitchSec);
+      refs.audioMaxSwitchSec.value = String(state.audioMaxSwitchSec);
+      refs.audioSwitchOnFeedAdvance.checked = state.audioSwitchOnFeedAdvance;
+      syncAudioControls();
     } catch (err) {
       showToast(`Settings load failed: ${err.message}`, true);
     }
@@ -335,18 +365,41 @@
   async function saveSettings() {
     const prefetchDepth = Number.parseInt(refs.prefetchDepth.value, 10);
     const lowDiskWarnGb = Number.parseFloat(refs.diskWarn.value);
+    const audioMinSwitchSec = normalizeAudioSwitchSec(refs.audioMinSwitchSec.value, state.audioMinSwitchSec);
+    const audioMaxSwitchSec = normalizeAudioSwitchSec(refs.audioMaxSwitchSec.value, state.audioMaxSwitchSec);
+    const normalizedAudioMin = Math.min(audioMinSwitchSec, audioMaxSwitchSec);
+    const normalizedAudioMax = Math.max(audioMinSwitchSec, audioMaxSwitchSec);
+    const audioEnabled = refs.audioEnabled.checked;
+    const audioSwitchOnFeedAdvance = refs.audioSwitchOnFeedAdvance.checked;
 
     try {
       const result = await api("/api/settings", {
         method: "PUT",
         body: JSON.stringify({
           prefetchDepth,
-          lowDiskWarnGb
+          lowDiskWarnGb,
+          audioEnabled,
+          audioMinSwitchSec: normalizedAudioMin,
+          audioMaxSwitchSec: normalizedAudioMax,
+          audioSwitchOnFeedAdvance
         })
       });
 
       state.prefetchDepth = result.settings.prefetchDepth;
+      state.audioEnabled = Boolean(result.settings.audioEnabled);
+      state.audioMinSwitchSec = normalizeAudioSwitchSec(result.settings.audioMinSwitchSec, normalizedAudioMin);
+      state.audioMaxSwitchSec = normalizeAudioSwitchSec(result.settings.audioMaxSwitchSec, normalizedAudioMax);
+      state.audioSwitchOnFeedAdvance = Boolean(result.settings.audioSwitchOnFeedAdvance);
       refs.prefetchDepth.value = String(result.settings.prefetchDepth);
+      refs.audioMinSwitchSec.value = String(state.audioMinSwitchSec);
+      refs.audioMaxSwitchSec.value = String(state.audioMaxSwitchSec);
+      refs.audioSwitchOnFeedAdvance.checked = state.audioSwitchOnFeedAdvance;
+      syncAudioControls();
+      if (state.audioEnabled) {
+        void switchAudioTrack("settings-save", false);
+      } else {
+        stopAudioPlayback();
+      }
       showToast("Settings saved");
     } catch (err) {
       showToast(`Settings error: ${err.message}`, true);
@@ -451,6 +504,199 @@
     refs.btnToggleAutoAdvance.title = state.autoAdvanceEnabled
       ? `Disable auto-advance (${state.autoAdvanceSeconds}s)`
       : "Enable auto-advance";
+  }
+
+  function normalizeAudioSwitchSec(value, fallback) {
+    const parsed = Number.parseInt(String(value), 10);
+    if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 3600) {
+      return parsed;
+    }
+    return fallback;
+  }
+
+  function syncAudioControls() {
+    refs.audioEnabled.checked = state.audioEnabled;
+    refs.audioMinSwitchSec.value = String(state.audioMinSwitchSec);
+    refs.audioMaxSwitchSec.value = String(state.audioMaxSwitchSec);
+    refs.audioSwitchOnFeedAdvance.checked = state.audioSwitchOnFeedAdvance;
+    refs.btnToggleAudio.classList.toggle("active", state.audioEnabled);
+    refs.btnToggleAudio.setAttribute("aria-pressed", state.audioEnabled ? "true" : "false");
+    refs.btnToggleAudio.title = state.audioEnabled ? "Disable background loops" : "Enable background loops";
+  }
+
+  function updateAudioLibraryStatus() {
+    const count = state.audioLibrary.length;
+    if (count === 0) {
+      refs.audioLibraryStatus.textContent = "Audio library: no supported files in ./media";
+      return;
+    }
+    const names = state.audioLibrary.slice(0, 3).map((item) => item.name);
+    const suffix = count > 3 ? ` +${count - 3} more` : "";
+    refs.audioLibraryStatus.textContent = `Audio library: ${count} file${count === 1 ? "" : "s"} (${names.join(", ")}${suffix})`;
+  }
+
+  async function refreshAudioLibrary(showResultToast = false) {
+    try {
+      const result = await api(`/api/audio/library?_ts=${Date.now()}`);
+      state.audioLibrary = Array.isArray(result.files) ? result.files : [];
+      updateAudioLibraryStatus();
+      if (showResultToast) {
+        showToast(`Audio library loaded (${state.audioLibrary.length})`);
+      }
+      return state.audioLibrary;
+    } catch (err) {
+      state.audioLibrary = [];
+      updateAudioLibraryStatus();
+      if (showResultToast) {
+        showToast(`Audio library error: ${err.message}`, true);
+      }
+      return [];
+    }
+  }
+
+  function ensureAudioPlayer() {
+    if (state.audioPlayer) {
+      return state.audioPlayer;
+    }
+
+    const audio = new Audio();
+    audio.preload = "auto";
+    audio.loop = true;
+    audio.addEventListener("error", () => {
+      if (!state.audioEnabled) {
+        return;
+      }
+      void switchAudioTrack("error", true);
+    });
+    state.audioPlayer = audio;
+    return audio;
+  }
+
+  function clearAudioSwitchTimer() {
+    if (state.audioTimerId !== null) {
+      clearTimeout(state.audioTimerId);
+      state.audioTimerId = null;
+    }
+  }
+
+  function stopAudioPlayback() {
+    clearAudioSwitchTimer();
+    const audio = state.audioPlayer;
+    state.audioAutoplayBlocked = false;
+    if (!audio) {
+      return;
+    }
+    audio.pause();
+    audio.currentTime = 0;
+    audio.removeAttribute("src");
+    audio.load();
+    state.audioCurrentTrack = null;
+    state.audioSwitchInFlight = false;
+  }
+
+  function randomAudioSwitchMs() {
+    const min = Math.max(1, Math.min(state.audioMinSwitchSec, state.audioMaxSwitchSec));
+    const max = Math.max(min, Math.max(state.audioMinSwitchSec, state.audioMaxSwitchSec));
+    const nextSec = Math.floor(Math.random() * (max - min + 1)) + min;
+    return nextSec * 1000;
+  }
+
+  function scheduleAudioSwitch() {
+    clearAudioSwitchTimer();
+    if (!state.audioEnabled) {
+      return;
+    }
+
+    state.audioTimerId = setTimeout(() => {
+      void switchAudioTrack("timer", true);
+    }, randomAudioSwitchMs());
+  }
+
+  function pickRandomTrack(preferDifferent) {
+    const tracks = state.audioLibrary;
+    if (tracks.length === 0) {
+      return null;
+    }
+
+    const currentName = state.audioCurrentTrack?.name ?? null;
+    if (preferDifferent && currentName && tracks.length > 1) {
+      const pool = tracks.filter((track) => track.name !== currentName);
+      if (pool.length > 0) {
+        return pool[Math.floor(Math.random() * pool.length)];
+      }
+    }
+
+    return tracks[Math.floor(Math.random() * tracks.length)];
+  }
+
+  async function switchAudioTrack(reason, preferDifferent) {
+    if (!state.audioEnabled || state.audioSwitchInFlight) {
+      return false;
+    }
+
+    state.audioSwitchInFlight = true;
+    try {
+      if (state.audioLibrary.length === 0) {
+        await refreshAudioLibrary(false);
+      }
+
+      if (state.audioLibrary.length === 0) {
+        showToast("No audio loops found in ./media", true);
+        return false;
+      }
+
+      const audio = ensureAudioPlayer();
+      const attempts = Math.max(1, state.audioLibrary.length);
+      const triedNames = new Set();
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        const nextTrack = pickRandomTrack(preferDifferent);
+        if (!nextTrack || triedNames.has(nextTrack.name)) {
+          continue;
+        }
+        triedNames.add(nextTrack.name);
+
+        const targetUrl = `${nextTrack.url}?_ts=${encodeURIComponent(nextTrack.updatedAt ?? "")}`;
+        audio.src = targetUrl;
+        try {
+          await audio.play();
+          state.audioAutoplayBlocked = false;
+          state.audioCurrentTrack = nextTrack;
+          scheduleAudioSwitch();
+          return true;
+        } catch {
+          // continue to another candidate
+        }
+      }
+
+      state.audioAutoplayBlocked = true;
+      if (reason === "button") {
+        showToast("Unable to start audio playback. Check media files or browser audio permissions.", true);
+      }
+      return false;
+    } finally {
+      state.audioSwitchInFlight = false;
+    }
+  }
+
+  async function setAudioEnabled(enabled, reason) {
+    state.audioEnabled = Boolean(enabled);
+    syncAudioControls();
+
+    if (!state.audioEnabled) {
+      stopAudioPlayback();
+      return;
+    }
+
+    const started = await switchAudioTrack(reason, false);
+    if (!started) {
+      if (reason === "init") {
+        showToast("Background audio is enabled. Tap the audio button to start playback.", true);
+        return;
+      }
+      stopAudioPlayback();
+      state.audioEnabled = false;
+      syncAudioControls();
+    }
   }
 
   function scheduleAutoAdvance() {
@@ -720,6 +966,7 @@
       return;
     }
 
+    const previousIndex = state.activeIndex;
     state.activeIndex = index;
     updateFeedModeUi();
 
@@ -737,6 +984,10 @@
 
     if (state.items.length - index <= 4) {
       await loadMore();
+    }
+
+    if (previousIndex >= 0 && state.audioEnabled && state.audioSwitchOnFeedAdvance && index !== previousIndex) {
+      void switchAudioTrack("feed-advance", true);
     }
 
     scheduleAutoAdvance();
@@ -779,6 +1030,13 @@
   }
 
   function bindEvents() {
+    refs.btnToggleAudio.addEventListener("click", () => {
+      if (state.audioEnabled && state.audioAutoplayBlocked) {
+        void switchAudioTrack("button", false);
+        return;
+      }
+      void setAudioEnabled(!state.audioEnabled, "button");
+    });
     refs.btnToggleAutoAdvance.addEventListener("click", () => {
       state.autoAdvanceEnabled = !state.autoAdvanceEnabled;
       syncAutoAdvanceControls();
@@ -801,8 +1059,36 @@
     document.getElementById("btn-save-settings").addEventListener("click", () => void saveSettings());
     document.getElementById("btn-refresh-stats").addEventListener("click", () => void refreshStats());
     document.getElementById("btn-reload-spec").addEventListener("click", () => void reloadSpec());
+    refs.btnRefreshAudioLibrary.addEventListener("click", () => void refreshAudioLibrary(true));
     refs.navVideos.addEventListener("click", () => void switchToGeneralFeed());
     refs.btnFlushCache.addEventListener("click", () => void flushCacheAndIndex());
+    refs.audioEnabled.addEventListener("change", () => {
+      void setAudioEnabled(refs.audioEnabled.checked, "settings");
+    });
+    refs.audioMinSwitchSec.addEventListener("change", () => {
+      state.audioMinSwitchSec = normalizeAudioSwitchSec(refs.audioMinSwitchSec.value, state.audioMinSwitchSec);
+      if (state.audioMaxSwitchSec < state.audioMinSwitchSec) {
+        state.audioMaxSwitchSec = state.audioMinSwitchSec;
+      }
+      syncAudioControls();
+      if (state.audioEnabled) {
+        scheduleAudioSwitch();
+      }
+    });
+    refs.audioMaxSwitchSec.addEventListener("change", () => {
+      state.audioMaxSwitchSec = normalizeAudioSwitchSec(refs.audioMaxSwitchSec.value, state.audioMaxSwitchSec);
+      if (state.audioMinSwitchSec > state.audioMaxSwitchSec) {
+        state.audioMinSwitchSec = state.audioMaxSwitchSec;
+      }
+      syncAudioControls();
+      if (state.audioEnabled) {
+        scheduleAudioSwitch();
+      }
+    });
+    refs.audioSwitchOnFeedAdvance.addEventListener("change", () => {
+      state.audioSwitchOnFeedAdvance = refs.audioSwitchOnFeedAdvance.checked;
+      syncAudioControls();
+    });
     refs.autoAdvanceEnabled.addEventListener("change", () => {
       state.autoAdvanceEnabled = refs.autoAdvanceEnabled.checked;
       syncAutoAdvanceControls();
@@ -859,10 +1145,15 @@
     state.autoAdvanceEnabled = refs.autoAdvanceEnabled.checked;
     state.autoAdvanceSeconds = normalizeAutoAdvanceSeconds(refs.autoAdvanceSeconds.value);
     syncAutoAdvanceControls();
+    syncAudioControls();
     setFullscreenUi(Boolean(document.fullscreenElement));
     setSettingsPanelOpen(false);
     updateFeedModeUi();
     await loadSettings();
+    await refreshAudioLibrary(false);
+    if (state.audioEnabled) {
+      await setAudioEnabled(true, "init");
+    }
     await refreshStats();
     startStatsAutoRefresh();
 

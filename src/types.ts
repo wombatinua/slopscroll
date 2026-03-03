@@ -38,6 +38,10 @@ export interface AuthState {
 export interface Settings {
   prefetchDepth: number;
   lowDiskWarnGb: number;
+  audioEnabled: boolean;
+  audioMinSwitchSec: number;
+  audioMaxSwitchSec: number;
+  audioSwitchOnFeedAdvance: boolean;
 }
 
 export interface FeedPage {

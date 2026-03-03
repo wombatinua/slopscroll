@@ -5,6 +5,7 @@ import type { CivitaiRequestSpec, Settings } from "./types";
 export interface AppConfig {
   host: string;
   port: number;
+  mediaDir: string;
   dataDir: string;
   cacheVideosDir: string;
   cacheThumbsDir: string;
@@ -24,6 +25,7 @@ export interface AppConfig {
 interface PartialConfig {
   host?: string;
   port?: number;
+  mediaDir?: string;
   dataDir?: string;
   settings?: Partial<Settings>;
   civitai?: {
@@ -36,10 +38,12 @@ interface PartialConfig {
 
 const ROOT = process.cwd();
 const DEFAULT_DATA_DIR = path.join(ROOT, "data");
+const DEFAULT_MEDIA_DIR = path.join(ROOT, "media");
 
 export const defaultConfig: AppConfig = {
   host: "0.0.0.0",
   port: 3579,
+  mediaDir: DEFAULT_MEDIA_DIR,
   dataDir: DEFAULT_DATA_DIR,
   cacheVideosDir: path.join(DEFAULT_DATA_DIR, "cache", "videos"),
   cacheThumbsDir: path.join(DEFAULT_DATA_DIR, "cache", "thumbs"),
@@ -49,7 +53,11 @@ export const defaultConfig: AppConfig = {
   staticDir: path.join(ROOT, "public"),
   settings: {
     prefetchDepth: 3,
-    lowDiskWarnGb: 2
+    lowDiskWarnGb: 2,
+    audioEnabled: false,
+    audioMinSwitchSec: 15,
+    audioMaxSwitchSec: 45,
+    audioSwitchOnFeedAdvance: false
   },
   civitai: {
     validatePath: "",
@@ -90,11 +98,26 @@ export function loadConfig(): AppConfig {
 
   const host = process.env.SLOPSCROLL_HOST ?? localConfig.host ?? defaultConfig.host;
   const port = toInt(process.env.SLOPSCROLL_PORT, localConfig.port ?? defaultConfig.port);
+  const mediaDir = process.env.SLOPSCROLL_MEDIA_DIR ?? localConfig.mediaDir ?? defaultConfig.mediaDir;
   const dataDir = process.env.SLOPSCROLL_DATA_DIR ?? localConfig.dataDir ?? defaultConfig.dataDir;
 
   const settings: Settings = {
     prefetchDepth: toInt(process.env.SLOPSCROLL_PREFETCH_DEPTH, localConfig.settings?.prefetchDepth ?? defaultConfig.settings.prefetchDepth),
-    lowDiskWarnGb: toNum(process.env.SLOPSCROLL_LOW_DISK_WARN_GB, localConfig.settings?.lowDiskWarnGb ?? defaultConfig.settings.lowDiskWarnGb)
+    lowDiskWarnGb: toNum(process.env.SLOPSCROLL_LOW_DISK_WARN_GB, localConfig.settings?.lowDiskWarnGb ?? defaultConfig.settings.lowDiskWarnGb),
+    audioEnabled:
+      (process.env.SLOPSCROLL_AUDIO_ENABLED ?? String(localConfig.settings?.audioEnabled ?? defaultConfig.settings.audioEnabled)).toLowerCase() ===
+      "true",
+    audioMinSwitchSec: toInt(
+      process.env.SLOPSCROLL_AUDIO_MIN_SWITCH_SEC,
+      localConfig.settings?.audioMinSwitchSec ?? defaultConfig.settings.audioMinSwitchSec
+    ),
+    audioMaxSwitchSec: toInt(
+      process.env.SLOPSCROLL_AUDIO_MAX_SWITCH_SEC,
+      localConfig.settings?.audioMaxSwitchSec ?? defaultConfig.settings.audioMaxSwitchSec
+    ),
+    audioSwitchOnFeedAdvance:
+      (process.env.SLOPSCROLL_AUDIO_SWITCH_ON_FEED_ADVANCE ??
+        String(localConfig.settings?.audioSwitchOnFeedAdvance ?? defaultConfig.settings.audioSwitchOnFeedAdvance)).toLowerCase() === "true"
   };
 
   const civitai = {
@@ -107,6 +130,7 @@ export function loadConfig(): AppConfig {
   return {
     host,
     port,
+    mediaDir,
     dataDir,
     cacheVideosDir: path.join(dataDir, "cache", "videos"),
     cacheThumbsDir: path.join(dataDir, "cache", "thumbs"),

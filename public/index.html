@@ -22,6 +22,20 @@
       </div>
       <div class="actions">
         <button
+          id="btn-toggle-audio"
+          type="button"
+          class="icon-btn"
+          aria-label="Toggle background audio loops"
+          aria-pressed="false"
+          title="Enable background loops"
+        >
+          <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M11 5 6 9H3v6h3l5 4V5z"></path>
+            <path d="M15.5 9.5a4 4 0 0 1 0 5"></path>
+            <path d="M18.5 7a8 8 0 0 1 0 10"></path>
+          </svg>
+        </button>
+        <button
           id="btn-toggle-autoadvance"
           type="button"
           class="icon-btn"
@@ -107,6 +121,23 @@
         <select id="auto-advance-seconds"></select>
         <label for="disk-warn">Low disk warning GB</label>
         <input id="disk-warn" type="number" min="0" step="0.5" value="2" />
+        <h3>Background Audio Loops</h3>
+        <label class="toggle-inline" for="audio-enabled">
+          <input id="audio-enabled" type="checkbox" />
+          Enable background loop playback
+        </label>
+        <label for="audio-min-switch-sec">Random switch min seconds</label>
+        <input id="audio-min-switch-sec" type="number" min="1" max="3600" value="15" />
+        <label for="audio-max-switch-sec">Random switch max seconds</label>
+        <input id="audio-max-switch-sec" type="number" min="1" max="3600" value="45" />
+        <label class="toggle-inline" for="audio-switch-on-advance">
+          <input id="audio-switch-on-advance" type="checkbox" />
+          Switch to random loop on feed advance
+        </label>
+        <div class="row wrap">
+          <button id="btn-refresh-audio-library" type="button">Refresh Audio Library</button>
+        </div>
+        <p id="audio-library-status" class="muted-note">Audio library: loading...</p>
         <button id="btn-save-settings" type="button">Save Settings</button>
       </section>
 

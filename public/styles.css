@@ -279,6 +279,12 @@ label {
   color: var(--muted);
 }
 
+.muted-note {
+  margin: 6px 0 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .toggle-inline {
   display: flex;
   align-items: center;

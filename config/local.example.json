@@ -1,10 +1,15 @@
 {
   "host": "0.0.0.0",
   "port": 3579,
+  "mediaDir": "./media",
   "dataDir": "./data",
   "settings": {
     "prefetchDepth": 3,
-    "lowDiskWarnGb": 2
+    "lowDiskWarnGb": 2,
+    "audioEnabled": false,
+    "audioMinSwitchSec": 15,
+    "audioMaxSwitchSec": 45,
+    "audioSwitchOnFeedAdvance": false
   },
   "civitai": {
     "requestTimeoutMs": 15000,

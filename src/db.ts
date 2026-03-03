@@ -255,7 +255,9 @@ export class AppDb {
 
   getSettings(defaults: Settings): Settings {
     const rows = this.db
-      .prepare(`SELECT key, value FROM settings WHERE key IN ('prefetchDepth', 'lowDiskWarnGb')`)
+      .prepare(
+        `SELECT key, value FROM settings WHERE key IN ('prefetchDepth', 'lowDiskWarnGb', 'audioEnabled', 'audioMinSwitchSec', 'audioMaxSwitchSec', 'audioSwitchOnFeedAdvance')`
+      )
       .all() as Array<{ key: string; value: string }>;
 
     const output: Settings = { ...defaults };
@@ -271,6 +273,24 @@ export class AppDb {
         if (Number.isFinite(parsed)) {
           output.lowDiskWarnGb = parsed;
         }
+      }
+      if (row.key === "audioEnabled") {
+        output.audioEnabled = row.value.toLowerCase() === "true";
+      }
+      if (row.key === "audioMinSwitchSec") {
+        const parsed = Number.parseInt(row.value, 10);
+        if (Number.isFinite(parsed)) {
+          output.audioMinSwitchSec = parsed;
+        }
+      }
+      if (row.key === "audioMaxSwitchSec") {
+        const parsed = Number.parseInt(row.value, 10);
+        if (Number.isFinite(parsed)) {
+          output.audioMaxSwitchSec = parsed;
+        }
+      }
+      if (row.key === "audioSwitchOnFeedAdvance") {
+        output.audioSwitchOnFeedAdvance = row.value.toLowerCase() === "true";
       }
     }
     return output;
@@ -289,6 +309,10 @@ export class AppDb {
     try {
       stmt.run("prefetchDepth", String(settings.prefetchDepth), ts);
       stmt.run("lowDiskWarnGb", String(settings.lowDiskWarnGb), ts);
+      stmt.run("audioEnabled", String(settings.audioEnabled), ts);
+      stmt.run("audioMinSwitchSec", String(settings.audioMinSwitchSec), ts);
+      stmt.run("audioMaxSwitchSec", String(settings.audioMaxSwitchSec), ts);
+      stmt.run("audioSwitchOnFeedAdvance", String(settings.audioSwitchOnFeedAdvance), ts);
       this.db.exec("COMMIT;");
     } catch (error) {
       this.db.exec("ROLLBACK;");

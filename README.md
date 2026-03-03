@@ -50,6 +50,8 @@ npm run dev
 - `PUT /api/settings`
 - `GET /api/cache/stats`
 - `POST /api/spec/reload`
+- `GET /api/audio/library`
+- `GET /api/audio/file/:name`
 
 ## Data Layout
 
@@ -58,6 +60,7 @@ npm run dev
 - `data/slopscroll.db` - SQLite index
 - `data/session/auth.json` - imported cookies
 - `data/civitai-request-spec.json` - feed request spec
+- `media/*` - local audio loop library (`.mp3`, `.wav`, `.ogg`, `.m4a`, `.aac`, `.flac`, `.opus`, `.webm`)
 
 ## Notes
 
