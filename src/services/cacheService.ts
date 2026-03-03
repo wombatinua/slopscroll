@@ -50,7 +50,6 @@ export class CacheService {
       const ok = await this.verifyReadyEntry(existing);
       if (ok) {
         this.db.incrementMetric("cache_hits");
-        this.db.touchCacheAccess(video.id);
         logger.info("cache.hit", { videoId: video.id, localPath: existing.localPath });
         return this.db.getCacheEntry(video.id) as CacheEntry;
       }
@@ -235,7 +234,6 @@ export class CacheService {
           status: "ready",
           fileSize: stat.size
         });
-        this.db.touchCacheAccess(video.id);
 
         logger.info("cache.download.success", {
           videoId: video.id,

@@ -16,10 +16,6 @@ export interface CacheEntry {
   localPath: string;
   status: CacheStatus;
   fileSize: number;
-  checksum?: string;
-  lastAccessedAt: string;
-  createdAt: string;
-  updatedAt: string;
   failureReason?: string;
 }
 

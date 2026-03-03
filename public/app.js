@@ -9,7 +9,6 @@
     prefetchSent: new Set(),
     prefetchPending: new Set(),
     failedVideoIds: new Set(),
-    statsIntervalId: null,
     statsRequestInFlight: false,
     fullscreenActive: false,
     pseudoFullscreenActive: false,
@@ -238,10 +237,12 @@
       if (result.auth.isValid && state.items.length === 0) {
         await loadMore();
       }
+      void refreshStats();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setAuthPill(false, message);
       showToast(`Cookie error: ${message}`, true);
+      void refreshStats();
     }
   }
 
@@ -250,10 +251,6 @@
       return state.selectedAuthorTotalComplete ? String(state.selectedAuthorTotal) : `${state.selectedAuthorTotal}+`;
     }
     return "...";
-  }
-
-  function isSelectedAuthorItem(item) {
-    return Boolean(state.selectedAuthor && item?.author === state.selectedAuthor);
   }
 
   function renderFixedMeta(item, index) {
@@ -266,52 +263,59 @@
 
     refs.fixedMeta.classList.remove("hidden");
     refs.fixedMetaMain.innerHTML = "";
+    refs.fixedMetaSub.innerHTML = "";
+    const sourceUrl = item.pageUrl || item.mediaUrl;
+    const isAuthorFeedItem = Boolean(state.selectedAuthor && item.author && item.author === state.selectedAuthor);
+
     if (item.author) {
-      const authorBtn = document.createElement("button");
-      authorBtn.type = "button";
-      authorBtn.className = "author-link";
-      authorBtn.textContent = `@${item.author}`;
-      authorBtn.title = `Show only @${item.author}`;
-      authorBtn.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        void switchToAuthor(item.author);
-      });
-      refs.fixedMetaMain.appendChild(authorBtn);
-      if (isSelectedAuthorItem(item)) {
+      if (isAuthorFeedItem) {
+        let linked = false;
+        if (sourceUrl) {
+          try {
+            const source = new URL(sourceUrl);
+            if (source.protocol === "http:" || source.protocol === "https:") {
+              const authorLink = document.createElement("a");
+              authorLink.className = "author-link";
+              authorLink.href = source.toString();
+              authorLink.target = "_blank";
+              authorLink.rel = "noopener noreferrer";
+              authorLink.textContent = `@${item.author}`;
+              authorLink.title = "Open current Civitai video";
+              refs.fixedMetaMain.appendChild(authorLink);
+              linked = true;
+            }
+          } catch {
+            // fall through to plain text below
+          }
+        }
+
+        if (!linked) {
+          const authorText = document.createElement("span");
+          authorText.className = "author-link";
+          authorText.textContent = `@${item.author}`;
+          refs.fixedMetaMain.appendChild(authorText);
+        }
+
         const counter = document.createElement("span");
         counter.className = "author-counter";
-        counter.textContent = `(${index + 1}/${getSelectedAuthorTotalLabel()})`;
+        counter.textContent = `${index + 1}/${getSelectedAuthorTotalLabel()}`;
         refs.fixedMetaMain.appendChild(counter);
+      } else {
+        const authorBtn = document.createElement("button");
+        authorBtn.type = "button";
+        authorBtn.className = "author-link";
+        authorBtn.textContent = `@${item.author}`;
+        authorBtn.title = `Show only @${item.author}`;
+        authorBtn.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void switchToAuthor(item.author);
+        });
+        refs.fixedMetaMain.appendChild(authorBtn);
       }
     } else {
       refs.fixedMetaMain.textContent = `Video ${item.id.slice(0, 8)}`;
     }
-
-    const sourceUrl = item.pageUrl || item.mediaUrl;
-    refs.fixedMetaSub.innerHTML = "";
-    if (!sourceUrl) {
-      return;
-    }
-
-    try {
-      const source = new URL(sourceUrl);
-      if (source.protocol === "http:" || source.protocol === "https:") {
-        const link = document.createElement("a");
-        link.className = "meta-link";
-        link.href = source.toString();
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-        link.textContent = source.toString();
-        link.title = source.toString();
-        refs.fixedMetaSub.appendChild(link);
-        return;
-      }
-    } catch {
-      // fall through to plain text when URL parsing fails
-    }
-
-    refs.fixedMetaSub.textContent = sourceUrl;
   }
 
   function updateFixedMeta() {
@@ -365,10 +369,14 @@
     const keepEnd = Math.min(state.items.length - 1, activeIndex + VIDEO_KEEP_AHEAD);
     const cards = refs.feed.querySelectorAll(".video-card");
 
-    cards.forEach((card, cardIndex) => {
+    cards.forEach((card) => {
+      const idx = Number.parseInt(card.dataset.idx || "-1", 10);
+      if (!Number.isInteger(idx) || idx < 0) {
+        return;
+      }
       const video = card.querySelector("video");
       const videoId = card.dataset.videoId;
-      const keepLoaded = cardIndex >= keepStart && cardIndex <= keepEnd;
+      const keepLoaded = idx >= keepStart && idx <= keepEnd;
 
       if (keepLoaded) {
         if (!video.getAttribute("src")) {
@@ -464,6 +472,7 @@
       showToast(msg, true);
     } finally {
       state.loadingFeed = false;
+      void refreshStats();
     }
   }
 
@@ -536,8 +545,10 @@
         stopAudioPlayback();
       }
       showToast("Settings saved");
+      void refreshStats();
     } catch (err) {
       showToast(`Settings error: ${err.message}`, true);
+      void refreshStats();
     }
   }
 
@@ -558,28 +569,6 @@
       refs.stats.appendChild(failed);
     } finally {
       state.statsRequestInFlight = false;
-    }
-  }
-
-  function startStatsAutoRefresh() {
-    if (state.statsIntervalId) {
-      clearInterval(state.statsIntervalId);
-    }
-
-    state.statsIntervalId = setInterval(() => void refreshStats(), 2000);
-  }
-
-  async function reloadSpec() {
-    try {
-      const result = await api("/api/spec/reload", { method: "POST" });
-      if (!result.ok) {
-        showToast("Request spec not found", true);
-      } else {
-        showToast("Request spec loaded");
-      }
-      await checkAuth();
-    } catch (err) {
-      showToast(`Spec reload error: ${err.message}`, true);
     }
   }
 
@@ -608,6 +597,7 @@
       showToast(`Prefetch error: ${err.message}`, true);
     } finally {
       ids.forEach((id) => state.prefetchPending.delete(id));
+      void refreshStats();
     }
   }
 
@@ -680,13 +670,7 @@
 
   function updateAudioLibraryStatus() {
     const count = state.audioLibrary.length;
-    if (count === 0) {
-      refs.audioLibraryStatus.textContent = "Audio library: no supported files in ./media";
-      return;
-    }
-    const names = state.audioLibrary.slice(0, 3).map((item) => item.name);
-    const suffix = count > 3 ? ` +${count - 3} more` : "";
-    refs.audioLibraryStatus.textContent = `Audio library: ${count} file${count === 1 ? "" : "s"} (${names.join(", ")}${suffix})`;
+    refs.audioLibraryStatus.textContent = `Audio library: ${count} file${count === 1 ? "" : "s"}`;
   }
 
   function getCardByIndex(index) {
@@ -1084,7 +1068,7 @@
       refs.navHome.classList.remove("active");
       refs.navHome.removeAttribute("aria-current");
       refs.feedNav.classList.remove("hidden");
-      refs.navSeparator.classList.remove("hidden");
+      refs.navSeparator.classList.add("hidden");
       refs.navAuthor.classList.remove("hidden");
       refs.navAuthor.classList.add("active");
       refs.navAuthor.setAttribute("aria-current", "page");
@@ -1277,6 +1261,7 @@
     }
 
     scheduleAutoAdvance();
+    void refreshStats();
   }
 
   async function skipBrokenActiveVideo(failedIndex, videoId) {
@@ -1350,10 +1335,7 @@
     });
 
     document.getElementById("btn-save-cookies").addEventListener("click", () => void saveCookies());
-    document.getElementById("btn-auth-status").addEventListener("click", () => void checkAuth());
     document.getElementById("btn-save-settings").addEventListener("click", () => void saveSettings());
-    document.getElementById("btn-refresh-stats").addEventListener("click", () => void refreshStats());
-    document.getElementById("btn-reload-spec").addEventListener("click", () => void reloadSpec());
     refs.btnRefreshAudioLibrary.addEventListener("click", () => void refreshAudioLibrary(true));
     refs.navHome.addEventListener("click", () => void navigateHome());
     refs.btnFlushCache.addEventListener("click", () => void flushCacheAndIndex());
@@ -1452,7 +1434,6 @@
     state.audioEnabled = false;
     syncAudioControls();
     await refreshStats();
-    startStatsAutoRefresh();
 
     const valid = await checkAuth();
     if (!valid) {

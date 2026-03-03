@@ -327,11 +327,7 @@ function main(): void {
   ensureParentDir(outPath);
   fs.writeFileSync(outPath, JSON.stringify(result.recommendedSpec, null, 2), "utf8");
 
-  const reportPath = outPath.replace(/\.json$/i, ".analysis.json");
-  fs.writeFileSync(reportPath, JSON.stringify(result, null, 2), "utf8");
-
   console.log(`Wrote request spec: ${outPath}`);
-  console.log(`Wrote analysis report: ${reportPath}`);
   console.log(`Top candidate: ${top.candidate.method} ${top.candidate.url} (score=${top.candidate.score})`);
 }
 

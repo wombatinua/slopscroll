@@ -51,10 +51,6 @@ export class AppDb {
         local_path TEXT NOT NULL,
         status TEXT NOT NULL,
         file_size INTEGER NOT NULL DEFAULT 0,
-        checksum TEXT,
-        last_accessed_at TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
         failure_reason TEXT,
         FOREIGN KEY(video_id) REFERENCES videos(id)
       );
@@ -72,6 +68,8 @@ export class AppDb {
       );
     `);
 
+    this.ensureCacheEntriesSchema();
+
     const seedMetric = this.db.prepare(`
       INSERT INTO metrics (key, value, updated_at)
       VALUES (?, 0, ?)
@@ -81,6 +79,48 @@ export class AppDb {
     const ts = nowIso();
     for (const key of METRIC_KEYS) {
       seedMetric.run(key, ts);
+    }
+  }
+
+  private ensureCacheEntriesSchema(): void {
+    const rows = this.db
+      .prepare(`PRAGMA table_info(cache_entries)`)
+      .all() as Array<{ name: string }>;
+
+    const expected = ["video_id", "local_path", "status", "file_size", "failure_reason"];
+    const names = rows.map((row) => row.name);
+    const hasExactShape = names.length === expected.length && expected.every((name) => names.includes(name));
+    if (hasExactShape) {
+      return;
+    }
+
+    const hasFailureReason = names.includes("failure_reason");
+    this.db.exec("BEGIN;");
+    try {
+      this.db.exec(`
+        CREATE TABLE cache_entries_new (
+          video_id TEXT PRIMARY KEY,
+          local_path TEXT NOT NULL,
+          status TEXT NOT NULL,
+          file_size INTEGER NOT NULL DEFAULT 0,
+          failure_reason TEXT,
+          FOREIGN KEY(video_id) REFERENCES videos(id)
+        );
+      `);
+
+      const failureReasonSelect = hasFailureReason ? "failure_reason" : "NULL AS failure_reason";
+      this.db.exec(`
+        INSERT INTO cache_entries_new (video_id, local_path, status, file_size, failure_reason)
+        SELECT video_id, local_path, status, COALESCE(file_size, 0), ${failureReasonSelect}
+        FROM cache_entries
+      `);
+
+      this.db.exec(`DROP TABLE cache_entries`);
+      this.db.exec(`ALTER TABLE cache_entries_new RENAME TO cache_entries`);
+      this.db.exec("COMMIT;");
+    } catch (error) {
+      this.db.exec("ROLLBACK;");
+      throw error;
     }
   }
 
@@ -159,20 +199,16 @@ export class AppDb {
     localPath: string;
     status: "ready" | "downloading" | "failed";
     fileSize?: number;
-    checksum?: string;
     failureReason?: string;
   }): void {
-    const ts = nowIso();
     this.db
       .prepare(`
-        INSERT INTO cache_entries (video_id, local_path, status, file_size, checksum, last_accessed_at, created_at, updated_at, failure_reason)
-        VALUES (@videoId, @localPath, @status, @fileSize, @checksum, @lastAccessedAt, @createdAt, @updatedAt, @failureReason)
+        INSERT INTO cache_entries (video_id, local_path, status, file_size, failure_reason)
+        VALUES (@videoId, @localPath, @status, @fileSize, @failureReason)
         ON CONFLICT(video_id) DO UPDATE SET
           local_path = excluded.local_path,
           status = excluded.status,
           file_size = excluded.file_size,
-          checksum = excluded.checksum,
-          updated_at = excluded.updated_at,
           failure_reason = excluded.failure_reason
       `)
       .run({
@@ -180,10 +216,6 @@ export class AppDb {
         localPath: entry.localPath,
         status: entry.status,
         fileSize: entry.fileSize ?? 0,
-        checksum: entry.checksum ?? null,
-        lastAccessedAt: ts,
-        createdAt: ts,
-        updatedAt: ts,
         failureReason: entry.failureReason ?? null
       });
   }
@@ -191,7 +223,7 @@ export class AppDb {
   getCacheEntry(videoId: string): CacheEntry | null {
     const row = this.db
       .prepare(`
-        SELECT video_id, local_path, status, file_size, checksum, last_accessed_at, created_at, updated_at, failure_reason
+        SELECT video_id, local_path, status, file_size, failure_reason
         FROM cache_entries
         WHERE video_id = ?
       `)
@@ -201,10 +233,6 @@ export class AppDb {
           local_path: string;
           status: "ready" | "downloading" | "failed";
           file_size: number;
-          checksum: string | null;
-          last_accessed_at: string;
-          created_at: string;
-          updated_at: string;
           failure_reason: string | null;
         }
       | undefined;
@@ -218,22 +246,8 @@ export class AppDb {
       localPath: row.local_path,
       status: row.status,
       fileSize: row.file_size,
-      checksum: row.checksum ?? undefined,
-      lastAccessedAt: row.last_accessed_at,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
       failureReason: row.failure_reason ?? undefined
     };
-  }
-
-  touchCacheAccess(videoId: string): void {
-    this.db
-      .prepare(`
-        UPDATE cache_entries
-        SET last_accessed_at = ?, updated_at = ?
-        WHERE video_id = ?
-      `)
-      .run(nowIso(), nowIso(), videoId);
   }
 
   incrementMetric(key: MetricKey, by = 1): void {

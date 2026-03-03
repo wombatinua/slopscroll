@@ -121,11 +121,11 @@ button:hover {
 .feed-nav {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 0;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: rgba(24, 14, 20, 0.65);
-  padding: 4px;
+  background: transparent;
+  padding: 2px 8px;
   min-width: 0;
   max-width: 100%;
 }
@@ -133,12 +133,12 @@ button:hover {
 .feed-nav-btn {
   border: none;
   background: transparent;
-  color: var(--muted);
-  border-radius: 999px;
-  padding: 6px 10px;
+  color: var(--accent);
+  border-radius: 0;
+  padding: 0;
   font-size: 12px;
   line-height: 1;
-  transition: background 140ms ease, color 140ms ease;
+  transition: color 140ms ease;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -147,18 +147,17 @@ button:hover {
 
 .feed-nav-btn:hover {
   transform: none;
-  background: rgba(62, 35, 50, 0.55);
+  background: transparent;
+  color: #ffd3e8;
 }
 
 .feed-nav-btn.active {
-  color: var(--text);
-  background: rgba(255, 119, 180, 0.2);
+  color: var(--accent);
+  background: transparent;
 }
 
 .feed-nav-sep {
-  color: var(--muted);
-  font-size: 12px;
-  opacity: 0.85;
+  display: none;
 }
 
 .icon-btn {
@@ -476,11 +475,11 @@ label {
   left: 20px;
   bottom: 24px;
   z-index: 22;
-  max-width: min(60ch, calc(100vw - 28px));
+  max-width: min(40ch, calc(100vw - 28px));
   background: rgba(4, 7, 11, 0.55);
   border: 1px solid rgba(236, 157, 197, 0.24);
-  border-radius: 10px;
-  padding: 8px 10px;
+  border-radius: 9px;
+  padding: 5px 8px;
   backdrop-filter: blur(6px);
 }
 
@@ -491,11 +490,11 @@ label {
 .meta-main {
   display: flex;
   align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
-  font-size: 12px;
+  gap: 6px;
+  flex-wrap: nowrap;
+  font-size: 11px;
   color: var(--text);
-  margin-bottom: 2px;
+  line-height: 1.1;
 }
 
 .author-link {
@@ -521,8 +520,7 @@ label {
 }
 
 .meta-sub {
-  font-size: 11px;
-  color: var(--muted);
+  display: none;
 }
 
 .meta-link {
@@ -673,7 +671,7 @@ label {
   }
 
   .meta {
-    max-width: calc(100vw - 28px);
+    max-width: calc(100vw - 120px);
     left: 14px;
     bottom: calc(14px + env(safe-area-inset-bottom));
   }
@@ -707,14 +705,7 @@ label {
   }
 
   .meta {
-    border-radius: 9px;
-    padding: 7px 9px;
-  }
-
-  .meta-sub {
-    max-width: calc(100vw - 50px);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    border-radius: 8px;
+    padding: 4px 7px;
   }
 }
