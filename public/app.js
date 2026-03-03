@@ -22,7 +22,6 @@
     audioMinSwitchSec: 15,
     audioMaxSwitchSec: 45,
     audioCrossfadeSec: 2,
-    audioSwitchOnFeedAdvance: false,
     audioLibrary: [],
     audioCurrentTrack: null,
     audioTimerId: null,
@@ -31,12 +30,16 @@
     audioFadeTimerId: null,
     audioFadeResolver: null,
     audioSwitchInFlight: false,
+    audioPendingSwitchRequested: false,
+    audioPendingSwitchPreferDifferent: false,
     audioAutoplayBlocked: false,
     videoReloadSeq: 0,
     selectedAuthor: null,
     selectedAuthorTotal: null,
     selectedAuthorTotalLoading: false,
-    selectedAuthorTotalComplete: true
+    selectedAuthorTotalComplete: true,
+    likedUsers: new Set(),
+    likedUsersListOpen: false
   };
 
   const refs = {
@@ -50,7 +53,6 @@
     audioMinSwitchSec: document.getElementById("audio-min-switch-sec"),
     audioMaxSwitchSec: document.getElementById("audio-max-switch-sec"),
     audioCrossfadeSec: document.getElementById("audio-crossfade-sec"),
-    audioSwitchOnFeedAdvance: document.getElementById("audio-switch-on-advance"),
     audioLibraryStatus: document.getElementById("audio-library-status"),
     btnRefreshAudioLibrary: document.getElementById("btn-refresh-audio-library"),
     btnToggleAudio: document.getElementById("btn-toggle-audio"),
@@ -64,6 +66,7 @@
     navHome: document.getElementById("nav-home"),
     feedNav: document.getElementById("feed-nav"),
     navAuthor: document.getElementById("nav-author"),
+    btnLikeAuthor: document.getElementById("btn-like-author"),
     navSeparator: document.getElementById("nav-separator"),
     btnToggleFullscreen: document.getElementById("btn-toggle-fullscreen"),
     btnExitFullscreen: document.getElementById("btn-exit-fullscreen"),
@@ -71,6 +74,8 @@
     btnCloseSettings: document.getElementById("btn-close-settings"),
     settingsPanel: document.getElementById("settings-panel"),
     settingsBackdrop: document.getElementById("settings-backdrop"),
+    btnShowLikedUsers: document.getElementById("btn-show-liked-users"),
+    likedUsersList: document.getElementById("liked-users-list"),
     fixedMeta: document.getElementById("fixed-meta"),
     fixedMetaMain: document.getElementById("fixed-meta-main"),
     fixedMetaSub: document.getElementById("fixed-meta-sub")
@@ -154,6 +159,24 @@
     return `${v.toFixed(precision)} ${units[idx]}`;
   }
 
+  function normalizeAuthorKey(author) {
+    return String(author || "")
+      .trim()
+      .toLowerCase();
+  }
+
+  function setHeartButtonState(button, liked, labelBase) {
+    if (!button) {
+      return;
+    }
+    const active = Boolean(liked);
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    const title = active ? `Unlike ${labelBase}` : `Like ${labelBase}`;
+    button.title = title;
+    button.setAttribute("aria-label", title);
+  }
+
   function renderStats(statsResponse) {
     refs.stats.innerHTML = "";
 
@@ -202,6 +225,106 @@
     }
 
     refs.stats.appendChild(summary);
+  }
+
+  function renderLikedUsersList() {
+    refs.likedUsersList.innerHTML = "";
+
+    if (!state.likedUsersListOpen) {
+      refs.likedUsersList.classList.add("hidden");
+      return;
+    }
+
+    refs.likedUsersList.classList.remove("hidden");
+    const users = Array.from(state.likedUsers).sort((a, b) => a.localeCompare(b));
+    if (users.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "muted-note";
+      empty.textContent = "No liked users yet.";
+      refs.likedUsersList.appendChild(empty);
+      return;
+    }
+
+    for (const username of users) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "liked-user-item";
+      btn.textContent = `@${username}`;
+      btn.addEventListener("click", () => {
+        setSettingsPanelOpen(false);
+        void switchToAuthor(username);
+      });
+      refs.likedUsersList.appendChild(btn);
+    }
+  }
+
+  async function loadLikedUsers() {
+    const result = await api(`/api/likes/users?_ts=${Date.now()}`);
+    const next = new Set();
+    if (Array.isArray(result.users)) {
+      for (const raw of result.users) {
+        const username = normalizeAuthorKey(raw);
+        if (username) {
+          next.add(username);
+        }
+      }
+    }
+    state.likedUsers = next;
+    renderLikedUsersList();
+  }
+
+  async function toggleSelectedAuthorLike() {
+    const username = normalizeAuthorKey(state.selectedAuthor);
+    if (!username) {
+      return;
+    }
+
+    const nextLiked = !state.likedUsers.has(username);
+    try {
+      const result = await api("/api/likes/user", {
+        method: "POST",
+        body: JSON.stringify({
+          username,
+          liked: nextLiked
+        })
+      });
+      if (result.liked) {
+        state.likedUsers.add(username);
+      } else {
+        state.likedUsers.delete(username);
+      }
+      setHeartButtonState(refs.btnLikeAuthor, result.liked, "user");
+      if (state.likedUsersListOpen) {
+        renderLikedUsersList();
+      }
+    } catch (err) {
+      showToast(`User like error: ${err.message}`, true);
+    }
+  }
+
+  async function setVideoLike(videoId, liked) {
+    if (!videoId) {
+      return;
+    }
+
+    try {
+      const result = await api("/api/likes/video", {
+        method: "POST",
+        body: JSON.stringify({
+          videoId,
+          liked
+        })
+      });
+      const idx = state.items.findIndex((item) => item.id === videoId);
+      if (idx >= 0) {
+        state.items[idx].liked = Boolean(result.liked);
+        if (idx === state.activeIndex) {
+          updateFixedMeta();
+        }
+      }
+    } catch (err) {
+      showToast(`Video like error: ${err.message}`, true);
+    }
   }
 
   async function checkAuth() {
@@ -265,7 +388,23 @@
     refs.fixedMetaMain.innerHTML = "";
     refs.fixedMetaSub.innerHTML = "";
     const sourceUrl = item.pageUrl || item.mediaUrl;
-    const isAuthorFeedItem = Boolean(state.selectedAuthor && item.author && item.author === state.selectedAuthor);
+    const isAuthorFeedItem = Boolean(
+      state.selectedAuthor && item.author && normalizeAuthorKey(item.author) === normalizeAuthorKey(state.selectedAuthor)
+    );
+    const createVideoHeart = () => {
+      const heart = document.createElement("button");
+      heart.type = "button";
+      heart.className = "heart-btn meta-heart-btn";
+      heart.innerHTML =
+        '<svg class="heart-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.1 20.3 5 13.7a4.8 4.8 0 0 1 6.8-6.8L12 7l.2-.1A4.8 4.8 0 1 1 19 13.7l-6.9 6.6z"></path></svg>';
+      setHeartButtonState(heart, Boolean(item.liked), "video");
+      heart.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        void setVideoLike(item.id, !Boolean(item.liked));
+      });
+      return heart;
+    };
 
     if (item.author) {
       if (isAuthorFeedItem) {
@@ -300,6 +439,7 @@
         counter.className = "author-counter";
         counter.textContent = `${index + 1}/${getSelectedAuthorTotalLabel()}`;
         refs.fixedMetaMain.appendChild(counter);
+        refs.fixedMetaMain.appendChild(createVideoHeart());
       } else {
         const authorBtn = document.createElement("button");
         authorBtn.type = "button";
@@ -312,9 +452,13 @@
           void switchToAuthor(item.author);
         });
         refs.fixedMetaMain.appendChild(authorBtn);
+        refs.fixedMetaMain.appendChild(createVideoHeart());
       }
     } else {
-      refs.fixedMetaMain.textContent = `Video ${item.id.slice(0, 8)}`;
+      const fallback = document.createElement("span");
+      fallback.textContent = `Video ${item.id.slice(0, 8)}`;
+      refs.fixedMetaMain.appendChild(fallback);
+      refs.fixedMetaMain.appendChild(createVideoHeart());
     }
   }
 
@@ -489,13 +633,11 @@
         state.audioMinSwitchSec = state.audioMaxSwitchSec;
         state.audioMaxSwitchSec = tmp;
       }
-      state.audioSwitchOnFeedAdvance = Boolean(result.settings.audioSwitchOnFeedAdvance);
       refs.prefetchDepth.value = String(result.settings.prefetchDepth);
       refs.diskWarn.value = String(result.settings.lowDiskWarnGb);
       refs.audioMinSwitchSec.value = String(state.audioMinSwitchSec);
       refs.audioMaxSwitchSec.value = String(state.audioMaxSwitchSec);
       refs.audioCrossfadeSec.value = String(state.audioCrossfadeSec);
-      refs.audioSwitchOnFeedAdvance.checked = state.audioSwitchOnFeedAdvance;
       syncAudioControls();
     } catch (err) {
       showToast(`Settings load failed: ${err.message}`, true);
@@ -511,7 +653,6 @@
     const normalizedAudioMin = Math.min(audioMinSwitchSec, audioMaxSwitchSec);
     const normalizedAudioMax = Math.max(audioMinSwitchSec, audioMaxSwitchSec);
     const audioEnabled = refs.audioEnabled.checked;
-    const audioSwitchOnFeedAdvance = refs.audioSwitchOnFeedAdvance.checked;
 
     try {
       const result = await api("/api/settings", {
@@ -522,8 +663,7 @@
           audioEnabled,
           audioMinSwitchSec: normalizedAudioMin,
           audioMaxSwitchSec: normalizedAudioMax,
-          audioCrossfadeSec,
-          audioSwitchOnFeedAdvance
+          audioCrossfadeSec
         })
       });
 
@@ -532,15 +672,13 @@
       state.audioMinSwitchSec = normalizeAudioSwitchSec(result.settings.audioMinSwitchSec, normalizedAudioMin);
       state.audioMaxSwitchSec = normalizeAudioSwitchSec(result.settings.audioMaxSwitchSec, normalizedAudioMax);
       state.audioCrossfadeSec = normalizeAudioCrossfadeSec(result.settings.audioCrossfadeSec, audioCrossfadeSec);
-      state.audioSwitchOnFeedAdvance = Boolean(result.settings.audioSwitchOnFeedAdvance);
       refs.prefetchDepth.value = String(result.settings.prefetchDepth);
       refs.audioMinSwitchSec.value = String(state.audioMinSwitchSec);
       refs.audioMaxSwitchSec.value = String(state.audioMaxSwitchSec);
       refs.audioCrossfadeSec.value = String(state.audioCrossfadeSec);
-      refs.audioSwitchOnFeedAdvance.checked = state.audioSwitchOnFeedAdvance;
       syncAudioControls();
       if (state.audioEnabled) {
-        void switchAudioTrack("settings-save", false);
+        requestAudioSwitch("settings-save", false);
       } else {
         stopAudioPlayback();
       }
@@ -662,7 +800,6 @@
     refs.audioMinSwitchSec.value = String(state.audioMinSwitchSec);
     refs.audioMaxSwitchSec.value = String(state.audioMaxSwitchSec);
     refs.audioCrossfadeSec.value = String(state.audioCrossfadeSec);
-    refs.audioSwitchOnFeedAdvance.checked = state.audioSwitchOnFeedAdvance;
     refs.btnToggleAudio.classList.toggle("active", state.audioEnabled);
     refs.btnToggleAudio.setAttribute("aria-pressed", state.audioEnabled ? "true" : "false");
     refs.btnToggleAudio.title = state.audioEnabled ? "Disable background loops" : "Enable background loops";
@@ -723,7 +860,7 @@
         if (!state.audioEnabled) {
           return;
         }
-        void switchAudioTrack("error", true);
+        requestAudioSwitch("error", true);
       });
       return audio;
     };
@@ -803,6 +940,8 @@
     clearAudioSwitchTimer();
     clearAudioFadeTimer(true);
     state.audioAutoplayBlocked = false;
+    state.audioPendingSwitchRequested = false;
+    state.audioPendingSwitchPreferDifferent = false;
     const players = ensureAudioPlayers();
     if (!players) {
       return;
@@ -829,33 +968,60 @@
     }
 
     state.audioTimerId = setTimeout(() => {
-      void switchAudioTrack("timer", true);
+      requestAudioSwitch("timer", true);
     }, randomAudioSwitchMs());
   }
 
-  function pickRandomTrack(preferDifferent) {
-    const tracks = state.audioLibrary;
+  function buildRandomTrackCandidates(preferDifferent) {
+    const tracks = state.audioLibrary.slice();
     if (tracks.length === 0) {
-      return null;
+      return [];
     }
 
     const currentName = state.audioCurrentTrack?.name ?? null;
+    let pool = tracks;
     if (preferDifferent && currentName && tracks.length > 1) {
-      const pool = tracks.filter((track) => track.name !== currentName);
-      if (pool.length > 0) {
-        return pool[Math.floor(Math.random() * pool.length)];
+      const filtered = tracks.filter((track) => track.name !== currentName);
+      if (filtered.length > 0) {
+        pool = filtered;
       }
     }
 
-    return tracks[Math.floor(Math.random() * tracks.length)];
+    for (let idx = pool.length - 1; idx > 0; idx -= 1) {
+      const swapIdx = Math.floor(Math.random() * (idx + 1));
+      const tmp = pool[idx];
+      pool[idx] = pool[swapIdx];
+      pool[swapIdx] = tmp;
+    }
+
+    return pool;
+  }
+
+  function requestAudioSwitch(reason, preferDifferent) {
+    if (!state.audioEnabled) {
+      return;
+    }
+    if (state.audioSwitchInFlight) {
+      state.audioPendingSwitchRequested = true;
+      state.audioPendingSwitchPreferDifferent = state.audioPendingSwitchPreferDifferent || Boolean(preferDifferent);
+      return;
+    }
+    void switchAudioTrack(reason, preferDifferent);
   }
 
   async function switchAudioTrack(reason, preferDifferent) {
-    if (!state.audioEnabled || state.audioSwitchInFlight) {
+    if (!state.audioEnabled) {
+      return false;
+    }
+    if (state.audioSwitchInFlight) {
+      state.audioPendingSwitchRequested = true;
+      state.audioPendingSwitchPreferDifferent = state.audioPendingSwitchPreferDifferent || Boolean(preferDifferent);
       return false;
     }
 
     state.audioSwitchInFlight = true;
+    state.audioPendingSwitchRequested = false;
+    state.audioPendingSwitchPreferDifferent = false;
     try {
       if (state.audioLibrary.length === 0) {
         await refreshAudioLibrary(false);
@@ -871,15 +1037,8 @@
       const currentAudio = currentIndex >= 0 ? players[currentIndex] : null;
       const nextIndex = currentIndex >= 0 ? (currentIndex === 0 ? 1 : 0) : 0;
       const nextAudio = players[nextIndex];
-      const attempts = Math.max(1, state.audioLibrary.length);
-      const triedNames = new Set();
-      for (let attempt = 0; attempt < attempts; attempt += 1) {
-        const nextTrack = pickRandomTrack(preferDifferent);
-        if (!nextTrack || triedNames.has(nextTrack.name)) {
-          continue;
-        }
-        triedNames.add(nextTrack.name);
-
+      const candidates = buildRandomTrackCandidates(preferDifferent);
+      for (const nextTrack of candidates) {
         const targetUrl = `${nextTrack.url}?_ts=${encodeURIComponent(nextTrack.updatedAt ?? "")}`;
         nextAudio.src = targetUrl;
         nextAudio.volume = currentAudio ? 0 : 1;
@@ -900,9 +1059,19 @@
       if (reason === "button") {
         showToast("Unable to start audio playback. Check media files or browser audio permissions.", true);
       }
+      if (reason !== "button") {
+        scheduleAudioSwitch();
+      }
       return false;
     } finally {
       state.audioSwitchInFlight = false;
+      const pendingRequested = state.audioPendingSwitchRequested;
+      const pendingPreferDifferent = state.audioPendingSwitchPreferDifferent;
+      state.audioPendingSwitchRequested = false;
+      state.audioPendingSwitchPreferDifferent = false;
+      if (pendingRequested && state.audioEnabled) {
+        queueMicrotask(() => requestAudioSwitch("queued", pendingPreferDifferent));
+      }
     }
   }
 
@@ -975,10 +1144,32 @@
     refs.settingsPanel.setAttribute("aria-hidden", next ? "false" : "true");
     refs.settingsBackdrop.classList.toggle("hidden", !next);
     refs.btnToggleSettings.setAttribute("aria-expanded", next ? "true" : "false");
+    if (!next && state.likedUsersListOpen) {
+      state.likedUsersListOpen = false;
+      refs.btnShowLikedUsers.textContent = "Liked Users";
+      renderLikedUsersList();
+    }
   }
 
   function toggleSettingsPanel() {
     setSettingsPanelOpen(!state.settingsPanelOpen);
+  }
+
+  async function toggleLikedUsersList() {
+    state.likedUsersListOpen = !state.likedUsersListOpen;
+    if (state.likedUsersListOpen) {
+      refs.btnShowLikedUsers.textContent = "Hide Liked Users";
+      try {
+        await loadLikedUsers();
+      } catch (err) {
+        showToast(`Liked users load failed: ${err.message}`, true);
+        state.likedUsersListOpen = false;
+        refs.btnShowLikedUsers.textContent = "Liked Users";
+      }
+    } else {
+      refs.btnShowLikedUsers.textContent = "Liked Users";
+      renderLikedUsersList();
+    }
   }
 
   function detectIosLike() {
@@ -1065,6 +1256,7 @@
 
   function updateFeedModeUi() {
     if (state.selectedAuthor) {
+      const authorKey = normalizeAuthorKey(state.selectedAuthor);
       refs.navHome.classList.remove("active");
       refs.navHome.removeAttribute("aria-current");
       refs.feedNav.classList.remove("hidden");
@@ -1073,6 +1265,8 @@
       refs.navAuthor.classList.add("active");
       refs.navAuthor.setAttribute("aria-current", "page");
       refs.navAuthor.textContent = `@${state.selectedAuthor}`;
+      refs.btnLikeAuthor.classList.remove("hidden");
+      setHeartButtonState(refs.btnLikeAuthor, state.likedUsers.has(authorKey), "user");
       updateFixedMeta();
       return;
     }
@@ -1084,6 +1278,8 @@
     refs.navAuthor.classList.add("hidden");
     refs.navAuthor.classList.remove("active");
     refs.navAuthor.removeAttribute("aria-current");
+    refs.btnLikeAuthor.classList.add("hidden");
+    setHeartButtonState(refs.btnLikeAuthor, false, "user");
     updateFixedMeta();
   }
 
@@ -1234,6 +1430,11 @@
     updateFeedModeUi();
     updateVideoMemoryWindow(index);
 
+    // Always switch to a random next loop on any feed advance, independent of timer settings.
+    if (previousIndex >= 0 && index !== previousIndex) {
+      requestAudioSwitch("feed-advance", true);
+    }
+
     const cards = refs.feed.querySelectorAll(".video-card");
     cards.forEach((card, cardIndex) => {
       const video = card.querySelector("video");
@@ -1254,10 +1455,6 @@
 
     if (state.items.length - index <= 4) {
       await loadMore();
-    }
-
-    if (previousIndex >= 0 && state.audioEnabled && state.audioSwitchOnFeedAdvance && index !== previousIndex) {
-      void switchAudioTrack("feed-advance", true);
     }
 
     scheduleAutoAdvance();
@@ -1311,7 +1508,7 @@
   function bindEvents() {
     refs.btnToggleAudio.addEventListener("click", () => {
       if (state.audioEnabled && state.audioAutoplayBlocked) {
-        void switchAudioTrack("button", false);
+        requestAudioSwitch("button", false);
         return;
       }
       void setAudioEnabled(!state.audioEnabled, "button");
@@ -1327,6 +1524,12 @@
     refs.btnToggleSettings.addEventListener("click", () => toggleSettingsPanel());
     refs.btnCloseSettings.addEventListener("click", () => setSettingsPanelOpen(false));
     refs.settingsBackdrop.addEventListener("click", () => setSettingsPanelOpen(false));
+    refs.btnLikeAuthor.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void toggleSelectedAuthorLike();
+    });
+    refs.btnShowLikedUsers.addEventListener("click", () => void toggleLikedUsersList());
     document.addEventListener("fullscreenchange", () => {
       if (document.fullscreenElement) {
         state.pseudoFullscreenActive = false;
@@ -1364,10 +1567,6 @@
     });
     refs.audioCrossfadeSec.addEventListener("change", () => {
       state.audioCrossfadeSec = normalizeAudioCrossfadeSec(refs.audioCrossfadeSec.value, state.audioCrossfadeSec);
-      syncAudioControls();
-    });
-    refs.audioSwitchOnFeedAdvance.addEventListener("change", () => {
-      state.audioSwitchOnFeedAdvance = refs.audioSwitchOnFeedAdvance.checked;
       syncAudioControls();
     });
     refs.autoAdvanceEnabled.addEventListener("change", () => {
@@ -1430,6 +1629,11 @@
     setSettingsPanelOpen(false);
     updateFeedModeUi();
     await loadSettings();
+    try {
+      await loadLikedUsers();
+    } catch {
+      // Keep UI usable; likes can still be toggled on demand.
+    }
     await refreshAudioLibrary(false);
     state.audioEnabled = false;
     syncAudioControls();

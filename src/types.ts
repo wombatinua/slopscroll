@@ -1,12 +1,13 @@
 export interface VideoRecord {
   id: string;
-  sourceUrl: string;
+  sourceUrl?: string;
   mediaUrl: string;
   pageUrl: string;
   duration?: number;
   author?: string;
   createdAt?: string;
   raw?: string;
+  liked?: boolean;
 }
 
 export type CacheStatus = "ready" | "downloading" | "failed";
@@ -38,7 +39,6 @@ export interface Settings {
   audioMinSwitchSec: number;
   audioMaxSwitchSec: number;
   audioCrossfadeSec: number;
-  audioSwitchOnFeedAdvance: boolean;
 }
 
 export interface FeedPage {

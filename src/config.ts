@@ -59,8 +59,7 @@ export const defaultConfig: AppConfig = {
     audioEnabled: false,
     audioMinSwitchSec: 15,
     audioMaxSwitchSec: 45,
-    audioCrossfadeSec: 2,
-    audioSwitchOnFeedAdvance: false
+    audioCrossfadeSec: 2
   },
   civitai: {
     validatePath: "",
@@ -122,10 +121,7 @@ export function loadConfig(): AppConfig {
     audioCrossfadeSec: toNum(
       process.env.SLOPSCROLL_AUDIO_CROSSFADE_SEC,
       localConfig.settings?.audioCrossfadeSec ?? defaultConfig.settings.audioCrossfadeSec
-    ),
-    audioSwitchOnFeedAdvance:
-      (process.env.SLOPSCROLL_AUDIO_SWITCH_ON_FEED_ADVANCE ??
-        String(localConfig.settings?.audioSwitchOnFeedAdvance ?? defaultConfig.settings.audioSwitchOnFeedAdvance)).toLowerCase() === "true"
+    )
   };
 
   const civitai = {

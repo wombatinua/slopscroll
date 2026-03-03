@@ -17,10 +17,6 @@ export interface CacheStats {
 const METRIC_KEYS = ["cache_hits", "cache_misses", "download_failures", "auth_failures"] as const;
 type MetricKey = (typeof METRIC_KEYS)[number];
 
-function nowIso(): string {
-  return new Date().toISOString();
-}
-
 export class AppDb {
   private readonly db: DatabaseSync;
 
@@ -35,15 +31,10 @@ export class AppDb {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS videos (
         id TEXT PRIMARY KEY,
-        source_url TEXT NOT NULL,
         media_url TEXT NOT NULL,
         page_url TEXT NOT NULL,
-        duration REAL,
         author TEXT,
-        created_at TEXT,
-        raw TEXT,
-        inserted_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        liked INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS cache_entries (
@@ -57,28 +48,33 @@ export class AppDb {
 
       CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        value TEXT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS metrics (
         key TEXT PRIMARY KEY,
-        value INTEGER NOT NULL DEFAULT 0,
-        updated_at TEXT NOT NULL
+        value INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS liked_users (
+        username TEXT PRIMARY KEY
       );
     `);
 
+    this.ensureVideosSchema();
     this.ensureCacheEntriesSchema();
+    this.ensureSettingsSchema();
+    this.ensureMetricsSchema();
+    this.ensureLikedUsersSchema();
 
     const seedMetric = this.db.prepare(`
-      INSERT INTO metrics (key, value, updated_at)
-      VALUES (?, 0, ?)
+      INSERT INTO metrics (key, value)
+      VALUES (?, 0)
       ON CONFLICT(key) DO NOTHING
     `);
 
-    const ts = nowIso();
     for (const key of METRIC_KEYS) {
-      seedMetric.run(key, ts);
+      seedMetric.run(key);
     }
   }
 
@@ -95,8 +91,10 @@ export class AppDb {
     }
 
     const hasFailureReason = names.includes("failure_reason");
+    const hasFileSize = names.includes("file_size");
     this.db.exec("BEGIN;");
     try {
+      this.db.exec(`DROP TABLE IF EXISTS cache_entries_new`);
       this.db.exec(`
         CREATE TABLE cache_entries_new (
           video_id TEXT PRIMARY KEY,
@@ -109,9 +107,10 @@ export class AppDb {
       `);
 
       const failureReasonSelect = hasFailureReason ? "failure_reason" : "NULL AS failure_reason";
+      const fileSizeSelect = hasFileSize ? "COALESCE(file_size, 0)" : "0";
       this.db.exec(`
         INSERT INTO cache_entries_new (video_id, local_path, status, file_size, failure_reason)
-        SELECT video_id, local_path, status, COALESCE(file_size, 0), ${failureReasonSelect}
+        SELECT video_id, local_path, status, ${fileSizeSelect}, ${failureReasonSelect}
         FROM cache_entries
       `);
 
@@ -124,57 +123,233 @@ export class AppDb {
     }
   }
 
+  private ensureVideosSchema(): void {
+    const rows = this.db
+      .prepare(`PRAGMA table_info(videos)`)
+      .all() as Array<{ name: string }>;
+
+    const expected = ["id", "media_url", "page_url", "author", "liked"];
+    const names = rows.map((row) => row.name);
+    const hasExactShape = names.length === expected.length && expected.every((name) => names.includes(name));
+    if (hasExactShape) {
+      return;
+    }
+
+    if (!names.includes("id")) {
+      throw new Error("videos table is missing required id column");
+    }
+
+    const mediaExpr = names.includes("media_url")
+      ? "media_url"
+      : names.includes("source_url")
+        ? "source_url"
+        : "''";
+    const pageExpr = names.includes("page_url")
+      ? "page_url"
+      : names.includes("source_url")
+        ? "source_url"
+        : "''";
+    const authorExpr = names.includes("author") ? "author" : "NULL AS author";
+    const likedExpr = names.includes("liked") ? "CASE WHEN liked = 1 THEN 1 ELSE 0 END" : "0 AS liked";
+
+    this.db.exec("BEGIN;");
+    try {
+      this.db.exec(`DROP TABLE IF EXISTS videos_new`);
+      this.db.exec(`
+        CREATE TABLE videos_new (
+          id TEXT PRIMARY KEY,
+          media_url TEXT NOT NULL,
+          page_url TEXT NOT NULL,
+          author TEXT,
+          liked INTEGER NOT NULL DEFAULT 0
+        );
+      `);
+
+      this.db.exec(`
+        INSERT INTO videos_new (id, media_url, page_url, author, liked)
+        SELECT id, ${mediaExpr}, ${pageExpr}, ${authorExpr}, ${likedExpr}
+        FROM videos
+      `);
+
+      this.db.exec(`DROP TABLE videos`);
+      this.db.exec(`ALTER TABLE videos_new RENAME TO videos`);
+      this.db.exec("COMMIT;");
+    } catch (error) {
+      this.db.exec("ROLLBACK;");
+      throw error;
+    }
+  }
+
+  private ensureLikedUsersSchema(): void {
+    const rows = this.db
+      .prepare(`PRAGMA table_info(liked_users)`)
+      .all() as Array<{ name: string }>;
+    if (rows.length === 0) {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS liked_users (
+          username TEXT PRIMARY KEY
+        )
+      `);
+      return;
+    }
+
+    const expected = ["username"];
+    const names = rows.map((row) => row.name);
+    const hasExactShape = names.length === expected.length && expected.every((name) => names.includes(name));
+    if (hasExactShape) {
+      return;
+    }
+
+    if (!names.includes("username")) {
+      throw new Error("liked_users table is missing required username column");
+    }
+
+    this.db.exec("BEGIN;");
+    try {
+      this.db.exec(`DROP TABLE IF EXISTS liked_users_new`);
+      this.db.exec(`
+        CREATE TABLE liked_users_new (
+          username TEXT PRIMARY KEY
+        );
+      `);
+      this.db.exec(`
+        INSERT INTO liked_users_new (username)
+        SELECT username
+        FROM liked_users
+        WHERE username IS NOT NULL AND TRIM(username) <> ''
+      `);
+      this.db.exec(`DROP TABLE liked_users`);
+      this.db.exec(`ALTER TABLE liked_users_new RENAME TO liked_users`);
+      this.db.exec("COMMIT;");
+    } catch (error) {
+      this.db.exec("ROLLBACK;");
+      throw error;
+    }
+  }
+
+  private ensureSettingsSchema(): void {
+    const rows = this.db
+      .prepare(`PRAGMA table_info(settings)`)
+      .all() as Array<{ name: string }>;
+
+    const expected = ["key", "value"];
+    const names = rows.map((row) => row.name);
+    const hasExactShape = names.length === expected.length && expected.every((name) => names.includes(name));
+    if (hasExactShape) {
+      return;
+    }
+
+    if (!names.includes("key")) {
+      throw new Error("settings table is missing required key column");
+    }
+
+    const valueExpr = names.includes("value") ? "value" : "'' AS value";
+    this.db.exec("BEGIN;");
+    try {
+      this.db.exec(`DROP TABLE IF EXISTS settings_new`);
+      this.db.exec(`
+        CREATE TABLE settings_new (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
+      `);
+
+      this.db.exec(`
+        INSERT INTO settings_new (key, value)
+        SELECT key, ${valueExpr}
+        FROM settings
+      `);
+
+      this.db.exec(`DROP TABLE settings`);
+      this.db.exec(`ALTER TABLE settings_new RENAME TO settings`);
+      this.db.exec("COMMIT;");
+    } catch (error) {
+      this.db.exec("ROLLBACK;");
+      throw error;
+    }
+  }
+
+  private ensureMetricsSchema(): void {
+    const rows = this.db
+      .prepare(`PRAGMA table_info(metrics)`)
+      .all() as Array<{ name: string }>;
+
+    const expected = ["key", "value"];
+    const names = rows.map((row) => row.name);
+    const hasExactShape = names.length === expected.length && expected.every((name) => names.includes(name));
+    if (hasExactShape) {
+      return;
+    }
+
+    if (!names.includes("key")) {
+      throw new Error("metrics table is missing required key column");
+    }
+
+    const valueExpr = names.includes("value") ? "COALESCE(value, 0)" : "0 AS value";
+    this.db.exec("BEGIN;");
+    try {
+      this.db.exec(`DROP TABLE IF EXISTS metrics_new`);
+      this.db.exec(`
+        CREATE TABLE metrics_new (
+          key TEXT PRIMARY KEY,
+          value INTEGER NOT NULL DEFAULT 0
+        );
+      `);
+
+      this.db.exec(`
+        INSERT INTO metrics_new (key, value)
+        SELECT key, ${valueExpr}
+        FROM metrics
+      `);
+
+      this.db.exec(`DROP TABLE metrics`);
+      this.db.exec(`ALTER TABLE metrics_new RENAME TO metrics`);
+      this.db.exec("COMMIT;");
+    } catch (error) {
+      this.db.exec("ROLLBACK;");
+      throw error;
+    }
+  }
+
   close(): void {
     this.db.close();
   }
 
   upsertVideo(video: VideoRecord): void {
-    const ts = nowIso();
     this.db
       .prepare(`
-        INSERT INTO videos (id, source_url, media_url, page_url, duration, author, created_at, raw, inserted_at, updated_at)
-        VALUES (@id, @sourceUrl, @mediaUrl, @pageUrl, @duration, @author, @createdAt, @raw, @insertedAt, @updatedAt)
+        INSERT INTO videos (id, media_url, page_url, author)
+        VALUES (@id, @mediaUrl, @pageUrl, @author)
         ON CONFLICT(id) DO UPDATE SET
-          source_url = excluded.source_url,
           media_url = excluded.media_url,
           page_url = excluded.page_url,
-          duration = excluded.duration,
-          author = excluded.author,
-          created_at = excluded.created_at,
-          raw = excluded.raw,
-          updated_at = excluded.updated_at
+          author = excluded.author
+        WHERE videos.media_url IS NOT excluded.media_url
+          OR videos.page_url IS NOT excluded.page_url
+          OR videos.author IS NOT excluded.author
       `)
       .run({
         id: video.id,
-        sourceUrl: video.sourceUrl,
         mediaUrl: video.mediaUrl,
         pageUrl: video.pageUrl,
-        duration: video.duration ?? null,
-        author: video.author ?? null,
-        createdAt: video.createdAt ?? null,
-        raw: video.raw ?? null,
-        insertedAt: ts,
-        updatedAt: ts
+        author: video.author ?? null
       });
   }
 
   getVideo(videoId: string): VideoRecord | null {
     const row = this.db
       .prepare(`
-        SELECT id, source_url, media_url, page_url, duration, author, created_at, raw
+        SELECT id, media_url, page_url, author, liked
         FROM videos
         WHERE id = ?
       `)
       .get(videoId) as
       | {
           id: string;
-          source_url: string;
           media_url: string;
           page_url: string;
-          duration: number | null;
           author: string | null;
-          created_at: string | null;
-          raw: string | null;
+          liked: number;
         }
       | undefined;
 
@@ -184,14 +359,73 @@ export class AppDb {
 
     return {
       id: row.id,
-      sourceUrl: row.source_url,
       mediaUrl: row.media_url,
       pageUrl: row.page_url,
-      duration: row.duration ?? undefined,
       author: row.author ?? undefined,
-      createdAt: row.created_at ?? undefined,
-      raw: row.raw ?? undefined
+      liked: row.liked === 1
     };
+  }
+
+  getLikedVideoIds(videoIds: string[]): Set<string> {
+    const ids = videoIds.filter((value) => value.trim().length > 0);
+    if (ids.length === 0) {
+      return new Set<string>();
+    }
+
+    const placeholders = ids.map(() => "?").join(", ");
+    const rows = this.db
+      .prepare(
+        `SELECT id FROM videos WHERE liked = 1 AND id IN (${placeholders})`
+      )
+      .all(...ids) as Array<{ id: string }>;
+
+    return new Set(rows.map((row) => row.id));
+  }
+
+  setVideoLiked(videoId: string, liked: boolean): boolean {
+    const result = this.db
+      .prepare(
+        `UPDATE videos
+         SET liked = ?
+         WHERE id = ?
+           AND liked <> ?`
+      )
+      .run(liked ? 1 : 0, videoId, liked ? 1 : 0);
+    return result.changes > 0;
+  }
+
+  listLikedUsers(): string[] {
+    const rows = this.db
+      .prepare(`SELECT username FROM liked_users ORDER BY username ASC`)
+      .all() as Array<{ username: string }>;
+    return rows.map((row) => row.username);
+  }
+
+  isUserLiked(username: string): boolean {
+    const row = this.db
+      .prepare(`SELECT 1 AS ok FROM liked_users WHERE username = ?`)
+      .get(username) as { ok: number } | undefined;
+    return Boolean(row?.ok);
+  }
+
+  setUserLiked(usernameRaw: string, liked: boolean): void {
+    const username = usernameRaw.trim().toLowerCase();
+    if (!username) {
+      return;
+    }
+
+    if (liked) {
+      this.db
+        .prepare(
+          `INSERT INTO liked_users (username)
+           VALUES (?)
+           ON CONFLICT(username) DO NOTHING`
+        )
+        .run(username);
+      return;
+    }
+
+    this.db.prepare(`DELETE FROM liked_users WHERE username = ?`).run(username);
   }
 
   upsertCacheEntry(entry: {
@@ -210,6 +444,10 @@ export class AppDb {
           status = excluded.status,
           file_size = excluded.file_size,
           failure_reason = excluded.failure_reason
+        WHERE cache_entries.local_path IS NOT excluded.local_path
+          OR cache_entries.status IS NOT excluded.status
+          OR cache_entries.file_size IS NOT excluded.file_size
+          OR cache_entries.failure_reason IS NOT excluded.failure_reason
       `)
       .run({
         videoId: entry.videoId,
@@ -254,10 +492,10 @@ export class AppDb {
     this.db
       .prepare(`
         UPDATE metrics
-        SET value = value + ?, updated_at = ?
+        SET value = value + ?
         WHERE key = ?
       `)
-      .run(by, nowIso(), key);
+      .run(by, key);
   }
 
   getMetric(key: MetricKey): number {
@@ -270,7 +508,7 @@ export class AppDb {
   getSettings(defaults: Settings): Settings {
     const rows = this.db
       .prepare(
-        `SELECT key, value FROM settings WHERE key IN ('prefetchDepth', 'lowDiskWarnGb', 'audioEnabled', 'audioMinSwitchSec', 'audioMaxSwitchSec', 'audioCrossfadeSec', 'audioSwitchOnFeedAdvance')`
+        `SELECT key, value FROM settings WHERE key IN ('prefetchDepth', 'lowDiskWarnGb', 'audioEnabled', 'audioMinSwitchSec', 'audioMaxSwitchSec', 'audioCrossfadeSec')`
       )
       .all() as Array<{ key: string; value: string }>;
 
@@ -309,31 +547,36 @@ export class AppDb {
           output.audioCrossfadeSec = parsed;
         }
       }
-      if (row.key === "audioSwitchOnFeedAdvance") {
-        output.audioSwitchOnFeedAdvance = row.value.toLowerCase() === "true";
-      }
     }
     return output;
   }
 
   setSettings(settings: Settings): void {
-    const ts = nowIso();
     const stmt = this.db.prepare(`
-      INSERT INTO settings (key, value, updated_at)
-      VALUES (?, ?, ?)
+      INSERT INTO settings (key, value)
+      VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET
-        value = excluded.value,
-        updated_at = excluded.updated_at
+        value = excluded.value
     `);
+    const currentRows = this.db.prepare(`SELECT key, value FROM settings`).all() as Array<{ key: string; value: string }>;
+    const current = new Map(currentRows.map((row) => [row.key, row.value]));
+    const nextValues = new Map<string, string>([
+      ["prefetchDepth", String(settings.prefetchDepth)],
+      ["lowDiskWarnGb", String(settings.lowDiskWarnGb)],
+      ["audioEnabled", String(settings.audioEnabled)],
+      ["audioMinSwitchSec", String(settings.audioMinSwitchSec)],
+      ["audioMaxSwitchSec", String(settings.audioMaxSwitchSec)],
+      ["audioCrossfadeSec", String(settings.audioCrossfadeSec)]
+    ]);
+
     this.db.exec("BEGIN;");
     try {
-      stmt.run("prefetchDepth", String(settings.prefetchDepth), ts);
-      stmt.run("lowDiskWarnGb", String(settings.lowDiskWarnGb), ts);
-      stmt.run("audioEnabled", String(settings.audioEnabled), ts);
-      stmt.run("audioMinSwitchSec", String(settings.audioMinSwitchSec), ts);
-      stmt.run("audioMaxSwitchSec", String(settings.audioMaxSwitchSec), ts);
-      stmt.run("audioCrossfadeSec", String(settings.audioCrossfadeSec), ts);
-      stmt.run("audioSwitchOnFeedAdvance", String(settings.audioSwitchOnFeedAdvance), ts);
+      for (const [key, value] of nextValues.entries()) {
+        if (current.get(key) === value) {
+          continue;
+        }
+        stmt.run(key, value);
+      }
       this.db.exec("COMMIT;");
     } catch (error) {
       this.db.exec("ROLLBACK;");
@@ -378,12 +621,11 @@ export class AppDb {
   }
 
   resetCacheIndex(): void {
-    const ts = nowIso();
     this.db.exec("BEGIN;");
     try {
       this.db.prepare(`DELETE FROM cache_entries`).run();
       this.db.prepare(`DELETE FROM videos`).run();
-      this.db.prepare(`UPDATE metrics SET value = 0, updated_at = ?`).run(ts);
+      this.db.prepare(`UPDATE metrics SET value = 0`).run();
       this.db.exec("COMMIT;");
     } catch (error) {
       this.db.exec("ROLLBACK;");

@@ -69,6 +69,7 @@ export class FeedService {
       for (const item of deduped) {
         this.db.upsertVideo(item);
       }
+      this.attachLikedFlags(deduped);
 
       logger.info("feed.page.fetched", {
         requestedLimit: limit,
@@ -280,6 +281,17 @@ export class FeedService {
     }
 
     return deduped;
+  }
+
+  private attachLikedFlags(items: VideoRecord[]): void {
+    if (items.length === 0) {
+      return;
+    }
+
+    const likedIds = this.db.getLikedVideoIds(items.map((item) => item.id));
+    for (const item of items) {
+      item.liked = likedIds.has(item.id);
+    }
   }
 
   private parseCursorToPage(cursor: string | null): number {

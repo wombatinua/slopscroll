@@ -176,6 +176,72 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
     };
   });
 
+  app.get("/api/likes/users", async () => {
+    return {
+      ok: true,
+      users: deps.db.listLikedUsers()
+    };
+  });
+
+  app.post<{ Body: { username?: string; liked?: boolean } }>("/api/likes/user", async (req, reply) => {
+    const username = (req.body?.username ?? "").trim().toLowerCase();
+    if (!username) {
+      reply.code(400);
+      return {
+        ok: false,
+        error: "username is required"
+      };
+    }
+    if (typeof req.body?.liked !== "boolean") {
+      reply.code(400);
+      return {
+        ok: false,
+        error: "liked must be a boolean"
+      };
+    }
+
+    deps.db.setUserLiked(username, req.body.liked);
+    return {
+      ok: true,
+      username,
+      liked: deps.db.isUserLiked(username)
+    };
+  });
+
+  app.post<{ Body: { videoId?: string; liked?: boolean } }>("/api/likes/video", async (req, reply) => {
+    const videoId = (req.body?.videoId ?? "").trim();
+    if (!videoId) {
+      reply.code(400);
+      return {
+        ok: false,
+        error: "videoId is required"
+      };
+    }
+    if (typeof req.body?.liked !== "boolean") {
+      reply.code(400);
+      return {
+        ok: false,
+        error: "liked must be a boolean"
+      };
+    }
+
+    const known = deps.db.getVideo(videoId);
+    if (!known) {
+      reply.code(404);
+      return {
+        ok: false,
+        error: "Unknown videoId"
+      };
+    }
+
+    deps.db.setVideoLiked(videoId, req.body.liked);
+    return {
+      ok: true,
+      videoId,
+      liked: req.body.liked
+    };
+  });
+
   app.put<{
     Body: {
       prefetchDepth?: number;
@@ -184,7 +250,6 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
       audioMinSwitchSec?: number;
       audioMaxSwitchSec?: number;
       audioCrossfadeSec?: number;
-      audioSwitchOnFeedAdvance?: boolean;
     };
   }>("/api/settings", async (req, reply) => {
     const existing = deps.db.getSettings(deps.config.settings);
@@ -203,8 +268,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
       audioEnabled: Boolean(req.body?.audioEnabled ?? existing.audioEnabled),
       audioMinSwitchSec: normalizedAudioMin,
       audioMaxSwitchSec: normalizedAudioMax,
-      audioCrossfadeSec: normalizedAudioCrossfade,
-      audioSwitchOnFeedAdvance: Boolean(req.body?.audioSwitchOnFeedAdvance ?? existing.audioSwitchOnFeedAdvance)
+      audioCrossfadeSec: normalizedAudioCrossfade
     };
 
     if (!Number.isFinite(next.lowDiskWarnGb)) {

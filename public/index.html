@@ -18,6 +18,18 @@
           <nav id="feed-nav" class="feed-nav hidden" aria-label="Feed navigation">
             <span id="nav-separator" class="feed-nav-sep hidden">›</span>
             <button id="nav-author" type="button" class="feed-nav-btn hidden">Author Feed</button>
+            <button
+              id="btn-like-author"
+              type="button"
+              class="heart-btn nav-heart-btn hidden"
+              aria-label="Like user"
+              title="Like user"
+              aria-pressed="false"
+            >
+              <svg class="heart-svg" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12.1 20.3 5 13.7a4.8 4.8 0 0 1 6.8-6.8L12 7l.2-.1A4.8 4.8 0 1 1 19 13.7l-6.9 6.6z"></path>
+              </svg>
+            </button>
           </nav>
         </div>
       </div>
@@ -124,10 +136,6 @@
         <input id="audio-max-switch-sec" type="number" min="1" max="3600" value="45" />
         <label for="audio-crossfade-sec">Crossfade seconds</label>
         <input id="audio-crossfade-sec" type="number" min="0" max="30" step="0.1" value="2" />
-        <label class="toggle-inline" for="audio-switch-on-advance">
-          <input id="audio-switch-on-advance" type="checkbox" />
-          Switch to random loop on feed advance
-        </label>
         <div class="row wrap">
           <button id="btn-refresh-audio-library" type="button">Refresh Audio Library</button>
         </div>
@@ -138,6 +146,12 @@
       <section>
         <h3>Cache Stats</h3>
         <div id="stats-output" class="stats-output">Loading cache stats...</div>
+      </section>
+
+      <section>
+        <h3>Likes</h3>
+        <button id="btn-show-liked-users" type="button">Liked Users</button>
+        <div id="liked-users-list" class="liked-users-list hidden"></div>
       </section>
 
       <section>
