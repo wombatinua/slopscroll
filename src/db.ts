@@ -331,4 +331,18 @@ export class AppDb {
       downloadFailures: this.getMetric("download_failures")
     };
   }
+
+  resetCacheIndex(): void {
+    const ts = nowIso();
+    this.db.exec("BEGIN;");
+    try {
+      this.db.prepare(`DELETE FROM cache_entries`).run();
+      this.db.prepare(`DELETE FROM videos`).run();
+      this.db.prepare(`UPDATE metrics SET value = 0, updated_at = ?`).run(ts);
+      this.db.exec("COMMIT;");
+    } catch (error) {
+      this.db.exec("ROLLBACK;");
+      throw error;
+    }
+  }
 }

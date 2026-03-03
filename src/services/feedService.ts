@@ -105,9 +105,15 @@ export class FeedService {
     return this.db.getVideo(videoId);
   }
 
+  resetInMemoryState(): void {
+    this.servedIdsByMode.clear();
+    this.authorTotalsCache.clear();
+    this.authorTotalsInFlight.clear();
+  }
+
   async getAuthorVideoTotal(
     author: string,
-    options?: { forceRefresh?: boolean }
+    options?: { forceRefresh?: boolean; allowSlowFallback?: boolean }
   ): Promise<{ author: string; totalVideos: number; complete: boolean; scannedPages: number; cached: boolean }> {
     const normalizedAuthor = this.normalizeAuthor(author);
     if (!normalizedAuthor) {
@@ -136,7 +142,8 @@ export class FeedService {
       };
     }
 
-    const task = this.computeAuthorVideoTotal(normalizedAuthor);
+    const allowSlowFallback = options?.allowSlowFallback ?? Boolean(options?.forceRefresh);
+    const task = this.computeAuthorVideoTotalSmart(normalizedAuthor, allowSlowFallback);
     this.authorTotalsInFlight.set(normalizedAuthor, task);
 
     try {
@@ -156,6 +163,36 @@ export class FeedService {
     } finally {
       this.authorTotalsInFlight.delete(normalizedAuthor);
     }
+  }
+
+  private async computeAuthorVideoTotalSmart(
+    author: string,
+    allowSlowFallback: boolean
+  ): Promise<{ totalVideos: number; complete: boolean; scannedPages: number }> {
+    const cookies = this.sessionStore.getCookies();
+    if (!cookies) {
+      throw new Error("No auth cookies configured. Use POST /api/auth/cookies first.");
+    }
+
+    const quick = await this.civitaiClient.fetchAuthorOverview(author, cookies);
+    if (quick.ok) {
+      return {
+        totalVideos: quick.videoCount,
+        complete: true,
+        scannedPages: 0
+      };
+    }
+
+    if (!allowSlowFallback) {
+      throw new Error(`Fast author total lookup failed: ${quick.error}`);
+    }
+
+    logger.warn("author.total.fallback", {
+      author,
+      reason: quick.error
+    });
+
+    return this.computeAuthorVideoTotal(author);
   }
 
   private async computeAuthorVideoTotal(author: string): Promise<{ totalVideos: number; complete: boolean; scannedPages: number }> {

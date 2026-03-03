@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>SlopScroll</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
@@ -11,21 +11,83 @@
 
     <header class="topbar">
       <div class="brand">
-        <h1>SlopScroll</h1>
-        <p>Cache-first Civitai scroller</p>
+        <div class="brand-main">
+          <h1>SlopScroll</h1>
+          <nav class="feed-nav" aria-label="Feed navigation">
+            <button id="nav-videos" type="button" class="feed-nav-btn active" aria-current="page">Videos</button>
+            <span id="nav-separator" class="feed-nav-sep hidden">›</span>
+            <button id="nav-author" type="button" class="feed-nav-btn hidden">Author Feed</button>
+          </nav>
+        </div>
       </div>
       <div class="actions">
-        <span id="feed-mode-label" class="mode-label">General Feed</span>
-        <button id="btn-back-general" type="button" class="hidden">Back to General</button>
-        <button id="btn-auth-status" type="button">Check Auth</button>
-        <button id="btn-reload-spec" type="button">Reload Spec</button>
-        <button id="btn-refresh-stats" type="button">Stats</button>
+        <button
+          id="btn-toggle-autoadvance"
+          type="button"
+          class="icon-btn"
+          aria-label="Toggle auto-advance"
+          aria-pressed="false"
+          title="Enable auto-advance"
+        >
+          <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+            <polyline points="5 4 14 12 5 20 5 4"></polyline>
+            <polyline points="12 4 21 12 12 20 12 4"></polyline>
+          </svg>
+        </button>
+        <button
+          id="btn-toggle-fullscreen"
+          type="button"
+          class="icon-btn"
+          aria-label="Toggle fullscreen"
+          aria-pressed="false"
+          title="Enter fullscreen"
+        >
+          <svg class="icon-svg icon-enter" viewBox="0 0 24 24" aria-hidden="true">
+            <polyline points="8 3 3 3 3 8"></polyline>
+            <polyline points="16 3 21 3 21 8"></polyline>
+            <polyline points="8 21 3 21 3 16"></polyline>
+            <polyline points="16 21 21 21 21 16"></polyline>
+          </svg>
+          <svg class="icon-svg icon-exit" viewBox="0 0 24 24" aria-hidden="true">
+            <polyline points="9 3 9 9 3 9"></polyline>
+            <polyline points="15 3 15 9 21 9"></polyline>
+            <polyline points="9 21 9 15 3 15"></polyline>
+            <polyline points="15 21 15 15 21 15"></polyline>
+          </svg>
+        </button>
+        <button id="btn-toggle-settings" type="button" class="icon-btn" aria-label="Open settings panel" aria-expanded="false" title="Settings">
+          <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="3.5"></circle>
+            <path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a1.9 1.9 0 1 1-2.7 2.7l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a2 2 0 1 1-4 0v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a1.9 1.9 0 0 1-2.7-2.7l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H4a2 2 0 1 1 0-4h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a1.9 1.9 0 1 1 2.7-2.7l.1.1a1 1 0 0 0 1.1.2h.1a1 1 0 0 0 .6-.9V4a2 2 0 1 1 4 0v.2a1 1 0 0 0 .6.9h.1a1 1 0 0 0 1.1-.2l.1-.1a1.9 1.9 0 0 1 2.7 2.7l-.1.1a1 1 0 0 0-.2 1.1v.1a1 1 0 0 0 .9.6H20a2 2 0 1 1 0 4h-.2a1 1 0 0 0-.9.6z"></path>
+          </svg>
+        </button>
       </div>
     </header>
 
-    <aside class="control-panel">
+    <div id="settings-backdrop" class="settings-backdrop hidden"></div>
+
+    <aside id="settings-panel" class="control-panel" aria-hidden="true">
+      <div class="panel-header">
+        <h2>Settings</h2>
+        <button id="btn-close-settings" type="button" class="icon-btn" aria-label="Close settings panel" title="Close">
+          <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
       <section>
-        <h2>Auth Cookies</h2>
+        <h3>Actions</h3>
+        <div class="row wrap">
+          <button id="btn-auth-status" type="button">Check Auth</button>
+          <button id="btn-reload-spec" type="button">Reload Spec</button>
+          <button id="btn-refresh-stats" type="button">Refresh Stats</button>
+        </div>
+      </section>
+
+      <section>
+        <h3>Auth Cookies</h3>
         <textarea id="cookie-input" placeholder="Paste full Cookie header from authenticated civitai.com session"></textarea>
         <div class="row">
           <button id="btn-save-cookies" type="button">Save Cookies</button>
@@ -34,17 +96,29 @@
       </section>
 
       <section>
-        <h2>Settings</h2>
+        <h3>Playback & Disk</h3>
         <label for="prefetch-depth">Prefetch depth (0-10)</label>
         <input id="prefetch-depth" type="number" min="0" max="10" value="3" />
+        <label class="toggle-inline" for="auto-advance-enabled">
+          <input id="auto-advance-enabled" type="checkbox" />
+          Auto-advance feed
+        </label>
+        <label for="auto-advance-seconds">Auto-advance interval</label>
+        <select id="auto-advance-seconds"></select>
         <label for="disk-warn">Low disk warning GB</label>
         <input id="disk-warn" type="number" min="0" step="0.5" value="2" />
         <button id="btn-save-settings" type="button">Save Settings</button>
       </section>
 
       <section>
-        <h2>Cache</h2>
-        <pre id="stats-output">loading...</pre>
+        <h3>Cache Stats</h3>
+        <div id="stats-output" class="stats-output">Loading cache stats...</div>
+      </section>
+
+      <section>
+        <h3>Danger Zone</h3>
+        <p class="danger-text">Deletes all cached videos and resets the local index.</p>
+        <button id="btn-flush-cache" type="button" class="danger-btn">Flush Cache & Index</button>
       </section>
     </aside>
 

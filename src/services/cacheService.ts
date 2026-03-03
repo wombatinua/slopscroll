@@ -104,6 +104,27 @@ export class CacheService {
     return { freeBytes: free, lowDisk };
   }
 
+  async flushCacheAndIndex(): Promise<{ deletedFilesEstimate: number; deletedBytesEstimate: number }> {
+    if (this.inFlight.size > 0) {
+      throw new Error("Cannot flush cache while downloads are in progress");
+    }
+
+    const before = this.db.getCacheStats();
+    await fs.promises.rm(this.config.cacheVideosDir, { recursive: true, force: true });
+    ensureDir(this.config.cacheVideosDir);
+    this.db.resetCacheIndex();
+
+    logger.warn("cache.flushed", {
+      deletedFilesEstimate: before.readyVideos,
+      deletedBytesEstimate: before.totalBytes
+    });
+
+    return {
+      deletedFilesEstimate: before.readyVideos,
+      deletedBytesEstimate: before.totalBytes
+    };
+  }
+
   private async verifyReadyEntry(entry: CacheEntry): Promise<boolean> {
     try {
       const stat = await fs.promises.stat(entry.localPath);
@@ -137,24 +158,27 @@ export class CacheService {
         }
 
         const mediaCandidates = this.getMediaCandidates(video.mediaUrl);
-        let response: Response | null = null;
-        let usedCandidate: string | null = null;
-        for (const candidate of mediaCandidates) {
-          const candidateResponse = await this.civitaiClient.downloadMedia(candidate, cookies);
-          if (candidateResponse.ok) {
-            response = candidateResponse;
-            usedCandidate = candidate;
-            break;
-          }
+        const initialAttempt = await this.tryDownloadCandidates(video, mediaCandidates, cookies);
 
-          if (candidateResponse.status === 401 || candidateResponse.status === 403) {
-            this.db.incrementMetric("auth_failures");
-            throw new Error(`Unauthorized media download (${candidateResponse.status})`);
+        let response: Response | null = initialAttempt.response;
+        let usedCandidate: string | null = initialAttempt.usedCandidate;
+        let triedCount = initialAttempt.triedCount;
+        let sourceLabel = "direct";
+
+        if (!response) {
+          const pageCandidates = await this.civitaiClient.fetchVideoSourceCandidatesFromPage(video.pageUrl, cookies);
+          const fallbackCandidates = pageCandidates.filter((candidate) => !mediaCandidates.includes(candidate));
+          if (fallbackCandidates.length > 0) {
+            const pageAttempt = await this.tryDownloadCandidates(video, fallbackCandidates, cookies);
+            response = pageAttempt.response;
+            usedCandidate = pageAttempt.usedCandidate;
+            triedCount += pageAttempt.triedCount;
+            sourceLabel = "page";
           }
         }
 
         if (!response) {
-          throw new Error("Media request failed for all URL candidates");
+          throw new Error(`Media request failed for all URL candidates (tried ${triedCount})`);
         }
 
         if (response.status === 401 || response.status === 403) {
@@ -197,6 +221,7 @@ export class CacheService {
         logger.info("cache.download.success", {
           videoId: video.id,
           mediaUrl: usedCandidate,
+          source: sourceLabel,
           bytes: stat.size,
           attempt
         });
@@ -236,6 +261,50 @@ export class CacheService {
     throw new Error(lastError);
   }
 
+  private async tryDownloadCandidates(
+    video: VideoRecord,
+    candidates: string[],
+    cookies: string
+  ): Promise<{ response: Response | null; usedCandidate: string | null; triedCount: number }> {
+    let triedCount = 0;
+
+    for (const candidate of candidates) {
+      triedCount += 1;
+      const candidateResponse = await this.civitaiClient.downloadMedia(candidate, cookies, video.pageUrl);
+
+      if (candidateResponse.status === 401 || candidateResponse.status === 403) {
+        this.db.incrementMetric("auth_failures");
+        throw new Error(`Unauthorized media download (${candidateResponse.status})`);
+      }
+
+      if (!candidateResponse.ok) {
+        continue;
+      }
+
+      const contentType = (candidateResponse.headers.get("content-type") ?? "").toLowerCase();
+      if (!this.isLikelyVideoContentType(contentType)) {
+        logger.warn("cache.download.rejected_content_type", {
+          videoId: video.id,
+          candidate,
+          contentType
+        });
+        continue;
+      }
+
+      return {
+        response: candidateResponse,
+        usedCandidate: candidate,
+        triedCount
+      };
+    }
+
+    return {
+      response: null,
+      usedCandidate: null,
+      triedCount
+    };
+  }
+
   private async safeUnlink(filePath: string): Promise<void> {
     try {
       await fs.promises.unlink(filePath);
@@ -246,6 +315,23 @@ export class CacheService {
 
   private async sleep(ms: number): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private isLikelyVideoContentType(contentType: string): boolean {
+    const value = contentType.trim().toLowerCase();
+    if (!value) {
+      return true;
+    }
+    if (value.startsWith("video/")) {
+      return true;
+    }
+    if (value.includes("mp4") || value.includes("webm")) {
+      return true;
+    }
+    if (value === "application/octet-stream" || value === "binary/octet-stream") {
+      return true;
+    }
+    return false;
   }
 
   private getMediaCandidates(mediaUrl: string): string[] {

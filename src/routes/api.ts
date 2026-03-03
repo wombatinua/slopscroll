@@ -208,4 +208,30 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
       specConfigured: fs.existsSync(deps.config.requestSpecPath)
     };
   });
+
+  app.post<{ Body: { confirm?: boolean } }>("/api/cache/flush", async (req, reply) => {
+    if (req.body?.confirm !== true) {
+      reply.code(400);
+      return {
+        ok: false,
+        error: "confirm=true is required"
+      };
+    }
+
+    try {
+      const result = await deps.cacheService.flushCacheAndIndex();
+      deps.feedService.resetInMemoryState();
+      return {
+        ok: true,
+        ...result
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500);
+      return {
+        ok: false,
+        error: message
+      };
+    }
+  });
 }
