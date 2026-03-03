@@ -4,8 +4,12 @@ dist
 .env
 .DS_Store
 data/slopscroll.db
+data/slopscroll.db-shm
+data/slopscroll.db-wal
+data/slopscroll.db-journal
 data/session/auth.json
 data/cache/videos/*
 !data/cache/videos/.gitkeep
 data/cache/thumbs/*
 !data/cache/thumbs/.gitkeep
+/media
