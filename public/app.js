@@ -12,7 +12,6 @@
     statsRequestInFlight: false,
     fullscreenActive: false,
     pseudoFullscreenActive: false,
-    nativeVideoFullscreenActive: false,
     settingsPanelOpen: false,
     isIosLike: false,
     autoAdvanceEnabled: false,
@@ -323,14 +322,6 @@
     video.src = `/api/video/${encodeURIComponent(item.id)}`;
     video.loop = true;
     video.muted = true;
-    video.addEventListener("webkitbeginfullscreen", () => {
-      state.nativeVideoFullscreenActive = true;
-      syncFullscreenUiFromState();
-    });
-    video.addEventListener("webkitendfullscreen", () => {
-      state.nativeVideoFullscreenActive = false;
-      syncFullscreenUiFromState();
-    });
 
     const main = node.querySelector(".meta-main");
     const sub = node.querySelector(".meta-sub");
@@ -660,14 +651,6 @@
 
   function getCardByIndex(index) {
     return refs.feed.querySelector(`.video-card[data-idx="${index}"]`);
-  }
-
-  function getActiveVideoElement() {
-    const card = getCardByIndex(state.activeIndex);
-    if (!card) {
-      return null;
-    }
-    return card.querySelector("video");
   }
 
   function jumpFeedToIndexNoAnimation(index) {
@@ -1029,8 +1012,8 @@
     document.body.classList.toggle("video-only-mode", state.fullscreenActive);
     refs.btnToggleFullscreen.classList.toggle("active", state.fullscreenActive);
     refs.btnToggleFullscreen.setAttribute("aria-pressed", state.fullscreenActive ? "true" : "false");
-    const enterText = "Enter fullscreen";
-    const exitText = state.isIosLike && state.pseudoFullscreenActive ? "Exit focus mode" : "Exit fullscreen";
+    const enterText = state.isIosLike ? "Enter focus mode" : "Enter fullscreen";
+    const exitText = state.isIosLike ? "Exit focus mode" : "Exit fullscreen";
     refs.btnToggleFullscreen.title = state.fullscreenActive ? exitText : enterText;
     refs.btnToggleFullscreen.setAttribute("aria-label", refs.btnToggleFullscreen.title);
     refs.btnExitFullscreen.classList.toggle("hidden", !state.fullscreenActive);
@@ -1060,54 +1043,10 @@
     }
   }
 
-  function syncFullscreenUiFromState() {
-    setFullscreenUi(Boolean(document.fullscreenElement) || state.pseudoFullscreenActive || state.nativeVideoFullscreenActive);
-  }
-
-  async function tryEnterActiveVideoNativeFullscreen() {
-    const activeVideo = getActiveVideoElement();
-    if (!activeVideo) {
-      return false;
-    }
-
-    if (typeof activeVideo.webkitEnterFullscreen === "function") {
-      try {
-        await activeVideo.play().catch(() => {});
-        activeVideo.webkitEnterFullscreen();
-        return true;
-      } catch {
-        return false;
-      }
-    }
-
-    if (typeof activeVideo.requestFullscreen === "function") {
-      try {
-        await activeVideo.requestFullscreen();
-        return true;
-      } catch {
-        return false;
-      }
-    }
-
-    return false;
-  }
-
   async function closeFullscreenMode() {
-    if (state.nativeVideoFullscreenActive) {
-      const activeVideo = getActiveVideoElement();
-      if (activeVideo && typeof activeVideo.webkitExitFullscreen === "function") {
-        try {
-          activeVideo.webkitExitFullscreen();
-          return;
-        } catch {
-          // Fall through to other fullscreen exits.
-        }
-      }
-    }
-
     if (state.pseudoFullscreenActive) {
       state.pseudoFullscreenActive = false;
-      syncFullscreenUiFromState();
+      setFullscreenUi(Boolean(document.fullscreenElement));
       return;
     }
 
@@ -1118,25 +1057,14 @@
 
   async function toggleFullscreen() {
     if (state.isIosLike) {
-      if (state.pseudoFullscreenActive) {
-        state.pseudoFullscreenActive = false;
-        syncFullscreenUiFromState();
-        return;
-      }
-
-      const enteredNative = await tryEnterActiveVideoNativeFullscreen();
-      if (enteredNative) {
-        return;
-      }
-
-      state.pseudoFullscreenActive = true;
-      syncFullscreenUiFromState();
+      state.pseudoFullscreenActive = !state.pseudoFullscreenActive;
+      setFullscreenUi(state.pseudoFullscreenActive);
       return;
     }
 
     if (state.pseudoFullscreenActive) {
       state.pseudoFullscreenActive = false;
-      syncFullscreenUiFromState();
+      setFullscreenUi(Boolean(document.fullscreenElement));
       return;
     }
 
@@ -1387,7 +1315,7 @@
       if (document.fullscreenElement) {
         state.pseudoFullscreenActive = false;
       }
-      syncFullscreenUiFromState();
+      setFullscreenUi(Boolean(document.fullscreenElement) || state.pseudoFullscreenActive);
     });
 
     document.getElementById("btn-save-cookies").addEventListener("click", () => void saveCookies());
@@ -1485,7 +1413,7 @@
     state.autoAdvanceSeconds = normalizeAutoAdvanceSeconds(refs.autoAdvanceSeconds.value);
     syncAutoAdvanceControls();
     syncAudioControls();
-    syncFullscreenUiFromState();
+    setFullscreenUi(Boolean(document.fullscreenElement));
     setSettingsPanelOpen(false);
     updateFeedModeUi();
     await loadSettings();
