@@ -25,8 +25,15 @@ function looksLikeUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
 }
 
+interface PrefetchTask {
+  video: VideoRecord;
+}
+
 export class CacheService {
   private readonly inFlight = new Map<string, Promise<CacheEntry>>();
+  private readonly prefetchQueue: PrefetchTask[] = [];
+  private readonly queuedPrefetchIds = new Set<string>();
+  private activePrefetchWorkers = 0;
 
   constructor(
     private readonly db: AppDb,
@@ -67,12 +74,17 @@ export class CacheService {
   }
 
   async enqueuePrefetch(video: VideoRecord): Promise<void> {
-    void this.ensureCached(video).catch((error) => {
-      logger.warn("prefetch.error", {
-        videoId: video.id,
-        error: error instanceof Error ? error.message : String(error)
-      });
-    });
+    const existing = this.db.getCacheEntry(video.id);
+    if (existing?.status === "ready") {
+      return;
+    }
+    if (this.inFlight.has(video.id) || this.queuedPrefetchIds.has(video.id)) {
+      return;
+    }
+
+    this.prefetchQueue.push({ video });
+    this.queuedPrefetchIds.add(video.id);
+    this.pumpPrefetchQueue();
   }
 
   async streamVideo(video: VideoRecord, reply: FastifyReply): Promise<FastifyReply> {
@@ -108,6 +120,9 @@ export class CacheService {
     if (this.inFlight.size > 0) {
       throw new Error("Cannot flush cache while downloads are in progress");
     }
+
+    this.prefetchQueue.length = 0;
+    this.queuedPrefetchIds.clear();
 
     const before = this.db.getCacheStats();
     await fs.promises.rm(this.config.cacheVideosDir, { recursive: true, force: true });
@@ -158,7 +173,7 @@ export class CacheService {
         }
 
         const mediaCandidates = this.getMediaCandidates(video.mediaUrl);
-        const initialAttempt = await this.tryDownloadCandidates(video, mediaCandidates, cookies);
+        const initialAttempt = await this.tryDownloadCandidates(video, mediaCandidates, cookies, attempt);
 
         let response: Response | null = initialAttempt.response;
         let usedCandidate: string | null = initialAttempt.usedCandidate;
@@ -169,7 +184,7 @@ export class CacheService {
           const pageCandidates = await this.civitaiClient.fetchVideoSourceCandidatesFromPage(video.pageUrl, cookies);
           const fallbackCandidates = pageCandidates.filter((candidate) => !mediaCandidates.includes(candidate));
           if (fallbackCandidates.length > 0) {
-            const pageAttempt = await this.tryDownloadCandidates(video, fallbackCandidates, cookies);
+            const pageAttempt = await this.tryDownloadCandidates(video, fallbackCandidates, cookies, attempt);
             response = pageAttempt.response;
             usedCandidate = pageAttempt.usedCandidate;
             triedCount += pageAttempt.triedCount;
@@ -186,9 +201,13 @@ export class CacheService {
           throw new Error(`Unauthorized media download (${response.status})`);
         }
 
+        if (response.status === 429) {
+          throw new RetryableError("Media request rate limited (429)", this.getRetryDelayMs(response, attempt));
+        }
+
         if (!response.ok) {
           if (response.status >= 500 && attempt < maxAttempts) {
-            throw new RetryableError(`Media request transient failure (${response.status})`);
+            throw new RetryableError(`Media request transient failure (${response.status})`, this.computeJitteredBackoffMs(attempt));
           }
           throw new Error(`Media request failed (${response.status})`);
         }
@@ -234,11 +253,13 @@ export class CacheService {
         await this.safeUnlink(tmpPath);
 
         const retryable = error instanceof RetryableError;
+        const retryDelayMs = retryable ? this.resolveRetryDelayMs(error, attempt) : null;
         logger.warn("cache.download.failed_attempt", {
           videoId: video.id,
           attempt,
           maxAttempts,
           retryable,
+          retryDelayMs,
           error: message
         });
 
@@ -246,7 +267,7 @@ export class CacheService {
           break;
         }
 
-        await this.sleep(300 * attempt);
+        await this.sleep(retryDelayMs ?? this.computeJitteredBackoffMs(attempt));
       }
     }
 
@@ -264,9 +285,11 @@ export class CacheService {
   private async tryDownloadCandidates(
     video: VideoRecord,
     candidates: string[],
-    cookies: string
+    cookies: string,
+    attempt: number
   ): Promise<{ response: Response | null; usedCandidate: string | null; triedCount: number }> {
     let triedCount = 0;
+    let transientFailure: RetryableError | null = null;
 
     for (const candidate of candidates) {
       triedCount += 1;
@@ -275,6 +298,24 @@ export class CacheService {
       if (candidateResponse.status === 401 || candidateResponse.status === 403) {
         this.db.incrementMetric("auth_failures");
         throw new Error(`Unauthorized media download (${candidateResponse.status})`);
+      }
+
+      if (candidateResponse.status === 429) {
+        const retryDelayMs = this.getRetryDelayMs(candidateResponse, attempt);
+        logger.warn("cache.download.rate_limited", {
+          videoId: video.id,
+          candidate,
+          retryDelayMs
+        });
+        throw new RetryableError("Media request rate limited (429)", retryDelayMs);
+      }
+
+      if (candidateResponse.status >= 500) {
+        transientFailure = new RetryableError(
+          `Media request transient failure (${candidateResponse.status})`,
+          this.computeJitteredBackoffMs(attempt)
+        );
+        continue;
       }
 
       if (!candidateResponse.ok) {
@@ -298,11 +339,40 @@ export class CacheService {
       };
     }
 
+    if (transientFailure) {
+      throw transientFailure;
+    }
+
     return {
       response: null,
       usedCandidate: null,
       triedCount
     };
+  }
+
+  private pumpPrefetchQueue(): void {
+    const limit = Math.max(1, this.config.civitai.prefetchConcurrency);
+    while (this.activePrefetchWorkers < limit && this.prefetchQueue.length > 0) {
+      const task = this.prefetchQueue.shift();
+      if (!task) {
+        break;
+      }
+
+      this.queuedPrefetchIds.delete(task.video.id);
+      this.activePrefetchWorkers += 1;
+
+      void this.ensureCached(task.video)
+        .catch((error) => {
+          logger.warn("prefetch.error", {
+            videoId: task.video.id,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        })
+        .finally(() => {
+          this.activePrefetchWorkers -= 1;
+          this.pumpPrefetchQueue();
+        });
+    }
   }
 
   private async safeUnlink(filePath: string): Promise<void> {
@@ -315,6 +385,42 @@ export class CacheService {
 
   private async sleep(ms: number): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private resolveRetryDelayMs(error: RetryableError, attempt: number): number {
+    const delayMs = error.delayMs;
+    if (typeof delayMs === "number" && Number.isFinite(delayMs) && delayMs > 0) {
+      return Math.max(100, Math.min(60000, Math.round(delayMs)));
+    }
+    return this.computeJitteredBackoffMs(attempt);
+  }
+
+  private computeJitteredBackoffMs(attempt: number): number {
+    const baseMs = 400;
+    const maxMs = 10000;
+    const exponential = Math.min(maxMs, baseMs * Math.pow(2, Math.max(0, attempt - 1)));
+    const jitter = 0.7 + Math.random() * 0.6;
+    return Math.round(exponential * jitter);
+  }
+
+  private getRetryDelayMs(response: Response, attempt: number): number {
+    const retryAfter = response.headers.get("retry-after");
+    if (!retryAfter) {
+      return this.computeJitteredBackoffMs(attempt);
+    }
+
+    const retrySeconds = Number.parseFloat(retryAfter);
+    if (Number.isFinite(retrySeconds)) {
+      return Math.max(100, Math.min(60000, Math.round(retrySeconds * 1000)));
+    }
+
+    const retryAt = Date.parse(retryAfter);
+    if (Number.isFinite(retryAt)) {
+      const delay = retryAt - Date.now();
+      return Math.max(100, Math.min(60000, delay));
+    }
+
+    return this.computeJitteredBackoffMs(attempt);
   }
 
   private isLikelyVideoContentType(contentType: string): boolean {
@@ -406,4 +512,11 @@ export class CacheService {
   }
 }
 
-class RetryableError extends Error {}
+class RetryableError extends Error {
+  constructor(
+    message: string,
+    public readonly delayMs?: number
+  ) {
+    super(message);
+  }
+}

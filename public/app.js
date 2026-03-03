@@ -7,6 +7,7 @@
     activeIndex: -1,
     prefetchDepth: 3,
     prefetchSent: new Set(),
+    prefetchPending: new Set(),
     failedVideoIds: new Set(),
     statsIntervalId: null,
     statsRequestInFlight: false,
@@ -32,7 +33,7 @@
     audioFadeResolver: null,
     audioSwitchInFlight: false,
     audioAutoplayBlocked: false,
-    authorCountersKey: "",
+    videoReloadSeq: 0,
     selectedAuthor: null,
     selectedAuthorTotal: null,
     selectedAuthorTotalLoading: false,
@@ -61,7 +62,8 @@
     diskWarn: document.getElementById("disk-warn"),
     stats: document.getElementById("stats-output"),
     tpl: document.getElementById("video-card-template"),
-    navVideos: document.getElementById("nav-videos"),
+    navHome: document.getElementById("nav-home"),
+    feedNav: document.getElementById("feed-nav"),
     navAuthor: document.getElementById("nav-author"),
     navSeparator: document.getElementById("nav-separator"),
     btnToggleFullscreen: document.getElementById("btn-toggle-fullscreen"),
@@ -70,14 +72,16 @@
     btnCloseSettings: document.getElementById("btn-close-settings"),
     settingsPanel: document.getElementById("settings-panel"),
     settingsBackdrop: document.getElementById("settings-backdrop"),
-    autoAdvanceOverlay: document.getElementById("auto-advance-overlay"),
-    autoAdvanceFrom: document.getElementById("auto-advance-from"),
-    autoAdvanceTo: document.getElementById("auto-advance-to")
+    fixedMeta: document.getElementById("fixed-meta"),
+    fixedMetaMain: document.getElementById("fixed-meta-main"),
+    fixedMetaSub: document.getElementById("fixed-meta-sub")
   };
 
   const observer = new IntersectionObserver(onIntersect, {
-    threshold: [0.65]
+    threshold: [0.65, 0.9]
   });
+  const VIDEO_KEEP_BEHIND = 10;
+  const VIDEO_KEEP_AHEAD = 2;
 
   async function api(path, options) {
     const method = (options?.method || "GET").toUpperCase();
@@ -102,8 +106,8 @@
   function showToast(message, isError = false) {
     refs.toast.textContent = message;
     refs.toast.classList.remove("hidden");
-    refs.toast.style.borderColor = isError ? "rgba(255, 162, 136, 0.5)" : "rgba(126, 224, 187, 0.5)";
-    refs.toast.style.background = isError ? "rgba(35, 14, 14, 0.9)" : "rgba(8, 25, 24, 0.9)";
+    refs.toast.style.borderColor = isError ? "rgba(255, 162, 136, 0.5)" : "rgba(255, 119, 180, 0.5)";
+    refs.toast.style.background = isError ? "rgba(35, 14, 14, 0.9)" : "rgba(34, 14, 24, 0.9)";
     clearTimeout(showToast._t);
     showToast._t = setTimeout(() => refs.toast.classList.add("hidden"), 2200);
   }
@@ -151,30 +155,6 @@
     return `${v.toFixed(precision)} ${units[idx]}`;
   }
 
-  function buildStatsCard(label, value, note) {
-    const card = document.createElement("div");
-    card.className = "stats-card";
-
-    const labelNode = document.createElement("div");
-    labelNode.className = "stats-label";
-    labelNode.textContent = label;
-    card.appendChild(labelNode);
-
-    const valueNode = document.createElement("div");
-    valueNode.className = "stats-value";
-    valueNode.textContent = value;
-    card.appendChild(valueNode);
-
-    if (note) {
-      const noteNode = document.createElement("div");
-      noteNode.className = "stats-note";
-      noteNode.textContent = note;
-      card.appendChild(noteNode);
-    }
-
-    return card;
-  }
-
   function renderStats(statsResponse) {
     refs.stats.innerHTML = "";
 
@@ -190,20 +170,21 @@
     const disk = statsResponse.disk ?? {};
     const updatedAt = new Date().toLocaleTimeString();
 
-    const grid = document.createElement("div");
-    grid.className = "stats-grid";
-    grid.appendChild(buildStatsCard("Videos Ready", formatInt(stats.readyVideos), `of ${formatInt(stats.totalVideos)}`));
-    grid.appendChild(buildStatsCard("Downloading", formatInt(stats.downloadingVideos), `${formatInt(stats.failedVideos)} failed`));
-    grid.appendChild(buildStatsCard("Cache Size", formatBytes(stats.totalBytes), `${formatInt(stats.cacheHits)} hits`));
-    grid.appendChild(buildStatsCard("Hit Rate", formatPercent(stats.hitRate), `${formatInt(stats.cacheMisses)} misses`));
-    grid.appendChild(buildStatsCard("Download Failures", formatInt(stats.downloadFailures), null));
-    grid.appendChild(buildStatsCard("Free Disk", formatBytes(disk.freeBytes), disk.lowDisk ? "Low disk warning" : "Disk OK"));
-    refs.stats.appendChild(grid);
+    const summary = document.createElement("div");
+    summary.className = "stats-summary";
 
-    const meta = document.createElement("div");
-    meta.className = "stats-meta";
+    const heading = document.createElement("div");
+    heading.className = "stats-summary-title";
+    heading.textContent = "Cache Overview";
+    summary.appendChild(heading);
 
     const rows = [
+      ["Ready Videos", `${formatInt(stats.readyVideos)} / ${formatInt(stats.totalVideos)}`],
+      ["Downloading", `${formatInt(stats.downloadingVideos)} (${formatInt(stats.failedVideos)} failed)`],
+      ["Cache Size", formatBytes(stats.totalBytes)],
+      ["Hit Rate", `${formatPercent(stats.hitRate)} (${formatInt(stats.cacheHits)} hits / ${formatInt(stats.cacheMisses)} misses)`],
+      ["Download Failures", formatInt(stats.downloadFailures)],
+      ["Free Disk", `${formatBytes(disk.freeBytes)}${disk.lowDisk ? " (Low disk warning)" : ""}`],
       ["Cache Directory", statsResponse.cacheDir || "-"],
       ["Spec Loaded", statsResponse.specConfigured ? "Yes" : "No"],
       ["Updated", updatedAt]
@@ -211,17 +192,17 @@
 
     for (const [label, value] of rows) {
       const row = document.createElement("div");
-      row.className = "stats-meta-row";
+      row.className = "stats-summary-row";
       const left = document.createElement("span");
       left.textContent = label;
       const right = document.createElement("span");
       right.textContent = value;
       row.appendChild(left);
       row.appendChild(right);
-      meta.appendChild(row);
+      summary.appendChild(row);
     }
 
-    refs.stats.appendChild(meta);
+    refs.stats.appendChild(summary);
   }
 
   async function checkAuth() {
@@ -275,57 +256,16 @@
     return Boolean(state.selectedAuthor && item?.author === state.selectedAuthor);
   }
 
-  function refreshRenderedAuthorCounters() {
-    const totalLabel = getSelectedAuthorTotalLabel();
-    const cards = refs.feed.querySelectorAll(".video-card");
-    cards.forEach((card) => {
-      const idx = Number.parseInt(card.dataset.idx || "-1", 10);
-      if (!Number.isInteger(idx) || idx < 0 || idx >= state.items.length) {
-        return;
-      }
-
-      const item = state.items[idx];
-      const main = card.querySelector(".meta-main");
-      if (!main) {
-        return;
-      }
-
-      let counter = main.querySelector(".author-counter");
-      if (isSelectedAuthorItem(item)) {
-        if (!counter) {
-          counter = document.createElement("span");
-          counter.className = "author-counter";
-          main.appendChild(counter);
-        }
-        counter.textContent = `(${idx + 1}/${totalLabel})`;
-      } else if (counter) {
-        counter.remove();
-      }
-    });
-  }
-
-  function syncAuthorCounters() {
-    const key = state.selectedAuthor ? `${state.selectedAuthor}|${getSelectedAuthorTotalLabel()}` : "";
-    if (state.authorCountersKey === key) {
+  function renderFixedMeta(item, index) {
+    if (!item || !Number.isInteger(index) || index < 0) {
+      refs.fixedMeta.classList.add("hidden");
+      refs.fixedMetaMain.innerHTML = "";
+      refs.fixedMetaSub.innerHTML = "";
       return;
     }
-    state.authorCountersKey = key;
-    refreshRenderedAuthorCounters();
-  }
 
-  function renderItem(item, index) {
-    const node = refs.tpl.content.firstElementChild.cloneNode(true);
-    node.dataset.videoId = item.id;
-    node.dataset.idx = String(index);
-
-    const video = node.querySelector("video");
-    video.src = `/api/video/${encodeURIComponent(item.id)}`;
-    video.loop = true;
-    video.muted = true;
-
-    const main = node.querySelector(".meta-main");
-    const sub = node.querySelector(".meta-sub");
-    main.innerHTML = "";
+    refs.fixedMeta.classList.remove("hidden");
+    refs.fixedMetaMain.innerHTML = "";
     if (item.author) {
       const authorBtn = document.createElement("button");
       authorBtn.type = "button";
@@ -337,48 +277,147 @@
         event.stopPropagation();
         void switchToAuthor(item.author);
       });
-      main.appendChild(authorBtn);
+      refs.fixedMetaMain.appendChild(authorBtn);
       if (isSelectedAuthorItem(item)) {
         const counter = document.createElement("span");
         counter.className = "author-counter";
         counter.textContent = `(${index + 1}/${getSelectedAuthorTotalLabel()})`;
-        main.appendChild(counter);
+        refs.fixedMetaMain.appendChild(counter);
       }
     } else {
-      main.textContent = `Video ${item.id.slice(0, 8)}`;
+      refs.fixedMetaMain.textContent = `Video ${item.id.slice(0, 8)}`;
     }
 
     const sourceUrl = item.pageUrl || item.mediaUrl;
-    sub.innerHTML = "";
-    if (sourceUrl) {
-      try {
-        const source = new URL(sourceUrl);
-        if (source.protocol === "http:" || source.protocol === "https:") {
-          const link = document.createElement("a");
-          link.className = "meta-link";
-          link.href = source.toString();
-          link.target = "_blank";
-          link.rel = "noopener noreferrer";
-          link.textContent = source.toString();
-          link.title = source.toString();
-          sub.appendChild(link);
-        } else {
-          sub.textContent = sourceUrl;
-        }
-      } catch {
-        sub.textContent = sourceUrl;
-      }
+    refs.fixedMetaSub.innerHTML = "";
+    if (!sourceUrl) {
+      return;
     }
 
+    try {
+      const source = new URL(sourceUrl);
+      if (source.protocol === "http:" || source.protocol === "https:") {
+        const link = document.createElement("a");
+        link.className = "meta-link";
+        link.href = source.toString();
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = source.toString();
+        link.title = source.toString();
+        refs.fixedMetaSub.appendChild(link);
+        return;
+      }
+    } catch {
+      // fall through to plain text when URL parsing fails
+    }
+
+    refs.fixedMetaSub.textContent = sourceUrl;
+  }
+
+  function updateFixedMeta() {
+    const item = state.items[state.activeIndex] ?? null;
+    renderFixedMeta(item, state.activeIndex);
+  }
+
+  function buildVideoApiUrl(videoId, reloadToken) {
+    const base = `/api/video/${encodeURIComponent(videoId)}`;
+    if (!Number.isInteger(reloadToken)) {
+      return base;
+    }
+    return `${base}?_reload=${reloadToken}`;
+  }
+
+  function attachVideoSource(video, videoId, forceReload = false) {
+    if (!video || !videoId) {
+      return;
+    }
+    if (!forceReload && video.getAttribute("src")) {
+      return;
+    }
+
+    let reloadToken = null;
+    if (forceReload) {
+      state.videoReloadSeq += 1;
+      reloadToken = state.videoReloadSeq;
+    }
+
+    video.src = buildVideoApiUrl(videoId, reloadToken);
+  }
+
+  function detachVideoSource(video) {
+    if (!video || !video.getAttribute("src")) {
+      return;
+    }
+
+    // Detaching source can emit transient media errors in some browsers.
+    video.dataset.suppressErrorUntil = String(Date.now() + 800);
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+  }
+
+  function updateVideoMemoryWindow(activeIndex) {
+    if (!Number.isInteger(activeIndex) || activeIndex < 0) {
+      return;
+    }
+
+    const keepStart = Math.max(0, activeIndex - VIDEO_KEEP_BEHIND);
+    const keepEnd = Math.min(state.items.length - 1, activeIndex + VIDEO_KEEP_AHEAD);
+    const cards = refs.feed.querySelectorAll(".video-card");
+
+    cards.forEach((card, cardIndex) => {
+      const video = card.querySelector("video");
+      const videoId = card.dataset.videoId;
+      const keepLoaded = cardIndex >= keepStart && cardIndex <= keepEnd;
+
+      if (keepLoaded) {
+        if (!video.getAttribute("src")) {
+          attachVideoSource(video, videoId, true);
+          video.load();
+        }
+        return;
+      }
+
+      if (!video.getAttribute("src")) {
+        return;
+      }
+
+      detachVideoSource(video);
+    });
+  }
+
+  function renderItem(item, index) {
+    const node = refs.tpl.content.firstElementChild.cloneNode(true);
+    node.dataset.videoId = item.id;
+    node.dataset.idx = String(index);
+
+    const video = node.querySelector("video");
+    video.loop = true;
+    video.muted = true;
+    video.preload = state.isIosLike ? "auto" : "metadata";
+    video.playsInline = true;
+
     video.addEventListener("error", () => {
+      const suppressUntil = Number.parseInt(video.dataset.suppressErrorUntil || "0", 10);
+      if (Date.now() < suppressUntil) {
+        return;
+      }
+
+      const errorCode = Number(video.error?.code || 0);
+      const isAborted = errorCode === 1;
       const err = node.querySelector(".error");
-      err.classList.remove("hidden");
-      err.textContent = "Playback failed. Check auth and source URL.";
       if (state.failedVideoIds.has(item.id)) {
         return;
       }
-      state.failedVideoIds.add(item.id);
       const idx = Number.parseInt(node.dataset.idx || "-1", 10);
+      const isActive = idx === state.activeIndex;
+      if (!isActive || isAborted || !video.getAttribute("src")) {
+        return;
+      }
+
+      state.failedVideoIds.add(item.id);
+      err.classList.remove("hidden");
+      err.textContent = "Playback failed. Check auth and source URL.";
       if (idx === state.activeIndex) {
         void skipBrokenActiveVideo(idx, item.id);
       }
@@ -404,6 +443,9 @@
       result.items.forEach((item, idx) => {
         renderItem(item, start + idx);
       });
+      if (state.activeIndex >= 0) {
+        updateVideoMemoryWindow(state.activeIndex);
+      }
 
       state.nextCursor = result.nextCursor;
       if (result.items.length === 0) {
@@ -544,21 +586,28 @@
   async function prefetchFrom(index) {
     const start = index + 1;
     const end = start + state.prefetchDepth;
-    const ids = state.items.slice(start, end).map((item) => item.id).filter((id) => !state.prefetchSent.has(id));
+    const ids = state.items
+      .slice(start, end)
+      .map((item) => item.id)
+      .filter((id) => !state.prefetchSent.has(id) && !state.prefetchPending.has(id));
 
     if (ids.length === 0) {
       return;
     }
 
-    ids.forEach((id) => state.prefetchSent.add(id));
+    ids.forEach((id) => state.prefetchPending.add(id));
 
     try {
-      await api("/api/prefetch", {
+      const result = await api("/api/prefetch", {
         method: "POST",
         body: JSON.stringify({ videoIds: ids })
       });
+      const queuedIds = Array.isArray(result?.queued) ? result.queued : ids;
+      queuedIds.forEach((id) => state.prefetchSent.add(id));
     } catch (err) {
       showToast(`Prefetch error: ${err.message}`, true);
+    } finally {
+      ids.forEach((id) => state.prefetchPending.delete(id));
     }
   }
 
@@ -569,7 +618,6 @@
     }
     if (state.autoAdvanceTransitionInFlight) {
       state.autoAdvanceTransitionInFlight = false;
-      stopAutoAdvanceOverlay();
     }
   }
 
@@ -639,14 +687,6 @@
     const names = state.audioLibrary.slice(0, 3).map((item) => item.name);
     const suffix = count > 3 ? ` +${count - 3} more` : "";
     refs.audioLibraryStatus.textContent = `Audio library: ${count} file${count === 1 ? "" : "s"} (${names.join(", ")}${suffix})`;
-  }
-
-  function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  function getVideoApiUrl(videoId) {
-    return `/api/video/${encodeURIComponent(videoId)}`;
   }
 
   function getCardByIndex(index) {
@@ -903,54 +943,13 @@
     }
   }
 
-  function stopAutoAdvanceOverlay() {
-    if (!refs.autoAdvanceOverlay || !refs.autoAdvanceFrom || !refs.autoAdvanceTo) {
-      return;
-    }
-
-    refs.autoAdvanceOverlay.classList.remove("active");
-    refs.autoAdvanceOverlay.classList.add("hidden");
-
-    for (const video of [refs.autoAdvanceFrom, refs.autoAdvanceTo]) {
-      video.pause();
-      video.removeAttribute("src");
-      video.load();
-      video.style.opacity = "0";
-    }
-  }
-
-  async function crossfadeAutoAdvanceTo(next) {
-    const currentIndex = state.activeIndex;
-    const currentItem = state.items[currentIndex];
-    const nextItem = state.items[next];
-    if (!currentItem || !nextItem || !refs.autoAdvanceOverlay || !refs.autoAdvanceFrom || !refs.autoAdvanceTo) {
-      jumpFeedToIndexNoAnimation(next);
-      return;
-    }
-
+  async function autoAdvanceTo(next) {
     state.autoAdvanceTransitionInFlight = true;
-    const from = refs.autoAdvanceFrom;
-    const to = refs.autoAdvanceTo;
-
     try {
-      from.src = getVideoApiUrl(currentItem.id);
-      to.src = getVideoApiUrl(nextItem.id);
-      from.style.opacity = "1";
-      to.style.opacity = "0";
-      refs.autoAdvanceOverlay.classList.remove("hidden");
-
-      await Promise.all([from.play().catch(() => {}), to.play().catch(() => {})]);
-      await sleep(20);
       jumpFeedToIndexNoAnimation(next);
-      await sleep(20);
-
-      refs.autoAdvanceOverlay.classList.add("active");
-      from.style.opacity = "0";
-      to.style.opacity = "1";
-      await sleep(1000);
+      await setActiveIndex(next);
     } finally {
       state.autoAdvanceTransitionInFlight = false;
-      stopAutoAdvanceOverlay();
     }
   }
 
@@ -978,7 +977,7 @@
       }
 
       if (next < state.items.length) {
-        await crossfadeAutoAdvanceTo(next);
+        await autoAdvanceTo(next);
       }
 
       scheduleAutoAdvance();
@@ -1082,24 +1081,26 @@
 
   function updateFeedModeUi() {
     if (state.selectedAuthor) {
-      refs.navVideos.classList.remove("active");
-      refs.navVideos.removeAttribute("aria-current");
+      refs.navHome.classList.remove("active");
+      refs.navHome.removeAttribute("aria-current");
+      refs.feedNav.classList.remove("hidden");
       refs.navSeparator.classList.remove("hidden");
       refs.navAuthor.classList.remove("hidden");
       refs.navAuthor.classList.add("active");
       refs.navAuthor.setAttribute("aria-current", "page");
       refs.navAuthor.textContent = `@${state.selectedAuthor}`;
-      syncAuthorCounters();
+      updateFixedMeta();
       return;
     }
 
-    refs.navVideos.classList.add("active");
-    refs.navVideos.setAttribute("aria-current", "page");
+    refs.navHome.classList.add("active");
+    refs.navHome.setAttribute("aria-current", "page");
+    refs.feedNav.classList.add("hidden");
     refs.navSeparator.classList.add("hidden");
     refs.navAuthor.classList.add("hidden");
     refs.navAuthor.classList.remove("active");
     refs.navAuthor.removeAttribute("aria-current");
-    syncAuthorCounters();
+    updateFixedMeta();
   }
 
   async function refreshAuthorTotal(authorRaw) {
@@ -1143,7 +1144,9 @@
     state.loadingFeed = false;
     state.activeIndex = -1;
     state.prefetchSent.clear();
+    state.prefetchPending.clear();
     state.failedVideoIds.clear();
+    updateFixedMeta();
 
     await loadMore();
     if (state.items.length > 0) {
@@ -1184,6 +1187,18 @@
     showToast("Returned to general feed");
   }
 
+  async function navigateHome() {
+    if (state.selectedAuthor) {
+      await switchToGeneralFeed();
+      return;
+    }
+
+    const firstCard = getCardByIndex(0);
+    if (firstCard) {
+      firstCard.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+
   async function flushCacheAndIndex() {
     const confirmed = window.confirm("Flush all cached videos and delete local index? This cannot be undone.");
     if (!confirmed) {
@@ -1209,6 +1224,7 @@
       state.nextCursor = null;
       state.activeIndex = -1;
       state.prefetchSent.clear();
+      state.prefetchPending.clear();
       state.failedVideoIds.clear();
       refs.feed.innerHTML = "";
       observer.disconnect();
@@ -1232,11 +1248,18 @@
     const previousIndex = state.activeIndex;
     state.activeIndex = index;
     updateFeedModeUi();
+    updateVideoMemoryWindow(index);
 
     const cards = refs.feed.querySelectorAll(".video-card");
     cards.forEach((card, cardIndex) => {
       const video = card.querySelector("video");
-      if (cardIndex === index) {
+      const videoId = card.dataset.videoId;
+      const keepPreviousPlaying = state.isIosLike && previousIndex >= 0 && cardIndex === previousIndex;
+      if (cardIndex === index || keepPreviousPlaying) {
+        if (!video.getAttribute("src")) {
+          attachVideoSource(video, videoId, true);
+          video.load();
+        }
         video.play().catch(() => {});
       } else {
         video.pause();
@@ -1281,14 +1304,22 @@
   }
 
   function onIntersect(entries) {
+    const minRatio = 0.9;
+    let candidateIdx = -1;
+    let candidateRatio = minRatio;
     for (const entry of entries) {
-      if (!entry.isIntersecting) {
+      if (!entry.isIntersecting || entry.intersectionRatio < minRatio) {
         continue;
       }
       const idx = Number.parseInt(entry.target.dataset.idx, 10);
-      if (Number.isInteger(idx)) {
-        void setActiveIndex(idx);
+      if (Number.isInteger(idx) && entry.intersectionRatio >= candidateRatio) {
+        candidateIdx = idx;
+        candidateRatio = entry.intersectionRatio;
       }
+    }
+
+    if (candidateIdx >= 0) {
+      void setActiveIndex(candidateIdx);
     }
   }
 
@@ -1324,7 +1355,7 @@
     document.getElementById("btn-refresh-stats").addEventListener("click", () => void refreshStats());
     document.getElementById("btn-reload-spec").addEventListener("click", () => void reloadSpec());
     refs.btnRefreshAudioLibrary.addEventListener("click", () => void refreshAudioLibrary(true));
-    refs.navVideos.addEventListener("click", () => void switchToGeneralFeed());
+    refs.navHome.addEventListener("click", () => void navigateHome());
     refs.btnFlushCache.addEventListener("click", () => void flushCacheAndIndex());
     refs.audioEnabled.addEventListener("change", () => {
       void setAudioEnabled(refs.audioEnabled.checked, "settings");

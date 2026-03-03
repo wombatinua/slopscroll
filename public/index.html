@@ -12,9 +12,10 @@
     <header class="topbar">
       <div class="brand">
         <div class="brand-main">
-          <h1>SlopScroll</h1>
-          <nav class="feed-nav" aria-label="Feed navigation">
-            <button id="nav-videos" type="button" class="feed-nav-btn active" aria-current="page">Videos</button>
+          <button id="nav-home" type="button" class="brand-home active" aria-current="page" title="Home">
+            SlopScroll
+          </button>
+          <nav id="feed-nav" class="feed-nav hidden" aria-label="Feed navigation">
             <span id="nav-separator" class="feed-nav-sep hidden">›</span>
             <button id="nav-author" type="button" class="feed-nav-btn hidden">Author Feed</button>
           </nav>
@@ -156,9 +157,9 @@
     </aside>
 
     <main id="feed" class="feed"></main>
-    <div id="auto-advance-overlay" class="auto-advance-overlay hidden" aria-hidden="true">
-      <video id="auto-advance-from" class="auto-advance-video" playsinline muted loop preload="metadata"></video>
-      <video id="auto-advance-to" class="auto-advance-video" playsinline muted loop preload="metadata"></video>
+    <div id="fixed-meta" class="meta fixed-meta hidden">
+      <div id="fixed-meta-main" class="meta-main"></div>
+      <div id="fixed-meta-sub" class="meta-sub"></div>
     </div>
     <button
       id="btn-exit-fullscreen"
@@ -185,10 +186,6 @@
     <template id="video-card-template">
       <section class="video-card">
         <video playsinline muted loop preload="metadata"></video>
-        <div class="meta">
-          <div class="meta-main"></div>
-          <div class="meta-sub"></div>
-        </div>
         <div class="error hidden"></div>
       </section>
     </template>

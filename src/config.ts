@@ -19,6 +19,7 @@ export interface AppConfig {
     requestTimeoutMs: number;
     downloadTimeoutMs: number;
     maxDownloadRetries: number;
+    prefetchConcurrency: number;
   };
 }
 
@@ -33,6 +34,7 @@ interface PartialConfig {
     requestTimeoutMs?: number;
     downloadTimeoutMs?: number;
     maxDownloadRetries?: number;
+    prefetchConcurrency?: number;
   };
 }
 
@@ -64,7 +66,8 @@ export const defaultConfig: AppConfig = {
     validatePath: "",
     requestTimeoutMs: 15000,
     downloadTimeoutMs: 60000,
-    maxDownloadRetries: 3
+    maxDownloadRetries: 3,
+    prefetchConcurrency: 1
   }
 };
 
@@ -129,7 +132,11 @@ export function loadConfig(): AppConfig {
     validatePath: process.env.SLOPSCROLL_CIVITAI_VALIDATE_PATH ?? localConfig.civitai?.validatePath ?? defaultConfig.civitai.validatePath,
     requestTimeoutMs: toInt(process.env.SLOPSCROLL_REQUEST_TIMEOUT_MS, localConfig.civitai?.requestTimeoutMs ?? defaultConfig.civitai.requestTimeoutMs),
     downloadTimeoutMs: toInt(process.env.SLOPSCROLL_DOWNLOAD_TIMEOUT_MS, localConfig.civitai?.downloadTimeoutMs ?? defaultConfig.civitai.downloadTimeoutMs),
-    maxDownloadRetries: toInt(process.env.SLOPSCROLL_DOWNLOAD_RETRIES, localConfig.civitai?.maxDownloadRetries ?? defaultConfig.civitai.maxDownloadRetries)
+    maxDownloadRetries: toInt(process.env.SLOPSCROLL_DOWNLOAD_RETRIES, localConfig.civitai?.maxDownloadRetries ?? defaultConfig.civitai.maxDownloadRetries),
+    prefetchConcurrency: Math.max(
+      1,
+      toInt(process.env.SLOPSCROLL_PREFETCH_CONCURRENCY, localConfig.civitai?.prefetchConcurrency ?? defaultConfig.civitai.prefetchConcurrency)
+    )
   };
 
   return {
