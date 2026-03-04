@@ -40,7 +40,13 @@ npm run dev
 Run with Docker Compose:
 
 ```bash
-docker compose up -d --build
+./scripts/docker-up.sh
+```
+
+Run with local git commit embedded in image metadata (recommended):
+
+```bash
+APP_COMMIT=$(git rev-parse --short=7 HEAD) docker compose up -d --build
 ```
 
 Stop:
@@ -91,7 +97,10 @@ Q: Why are cookies/spec missing after restart?
 A: Confirm `./data/session` and `./data/civitai-request-spec.json` exist on host and are mounted to `/app/data`.
 
 Q: How do I pick up code/dependency changes?
-A: Rebuild image: `docker compose up -d --build`.
+A: Rebuild image: `./scripts/docker-up.sh`.
+
+Q: Why does settings show `SlopScroll X.X.X (unknown)` in local Docker?
+A: Docker images do not include your `.git` metadata. Build via `./scripts/docker-up.sh` (or pass `APP_COMMIT=...` manually).
 
 Q: I changed audio files under `data/sounds` and container still has old loops.
 A: With compose defaults, loops come from host `${DATA_DIR}/sounds`, so changes apply immediately (restart container if needed). Rebuild is only required when running without host data mount.

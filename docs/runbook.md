@@ -11,7 +11,7 @@
 ## Docker Operation
 
 Start/rebuild:
-1. `docker compose up -d --build`
+1. `./scripts/docker-up.sh`
 2. `docker compose ps`
 3. `docker compose logs -f slopscroll` (if needed)
 
@@ -108,4 +108,4 @@ Notes:
   - Verify host folders exist under `./data`.
   - Verify compose bind mounts are not overridden.
 - Changes not applied after pull/edit:
-  - Rebuild image with `docker compose up -d --build`.
+  - Rebuild image with `./scripts/docker-up.sh`.

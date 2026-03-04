@@ -4,6 +4,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        APP_COMMIT: "${APP_COMMIT:-unknown}"
     image: slopscroll:latest
     restart: unless-stopped
     ports:
