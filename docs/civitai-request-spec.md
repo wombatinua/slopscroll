@@ -1,7 +1,7 @@
 # Civitai Request Replication Spec
 
 This project uses `data/civitai-request-spec.json` as the source of truth for replaying feed requests.
-When Offline mode is enabled, this spec is not used for feed serving.
+When feed mode is `offline_video` or `offline_image`, this spec is not used for feed serving.
 
 ## Schema
 
@@ -42,4 +42,4 @@ When Offline mode is enabled, this spec is not used for feed serving.
 - Missing spec file: feed/auth validation blocked.
 - Wrong endpoint/headers: feed request returns non-200.
 - Wrong extraction paths: feed call succeeds but zero normalized items.
-- Offline mode enabled: spec reload remains intentionally blocked with `409`.
+- Offline mode enabled (`offline_video` or `offline_image`): spec reload remains intentionally blocked with `409`.

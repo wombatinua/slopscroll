@@ -10,6 +10,6 @@ data/slopscroll.db-journal
 data/session/auth.json
 data/cache/videos/*
 !data/cache/videos/.gitkeep
-data/cache/thumbs/*
-!data/cache/thumbs/.gitkeep
+data/cache/images/*
+!data/cache/images/.gitkeep
 /media

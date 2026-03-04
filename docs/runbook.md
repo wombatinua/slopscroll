@@ -17,7 +17,10 @@
 - Settings are autosaved on change; there is no explicit Save Settings action.
 - In author feed, use header back arrow to return to the exact previous main-feed position.
 - Clicking `SlopScroll` in header always reinitializes main feed.
-- Offline mode (`Settings -> Offline mode`) forces cached-only browsing and blocks Civitai-dependent network actions.
+- Feed mode selector (`Settings -> Feed mode`) controls source:
+  - `Online`: Civitai-backed feed.
+  - `Offline Video Mode`: ready cached videos only.
+  - `Offline Image Mode`: local images from `data/cache/images` only.
 
 ## Troubleshooting
 
@@ -32,23 +35,26 @@
 - Inspect `data/civitai-request-spec.analysis.json`.
 - Adjust `itemPaths` / `mediaUrlPaths` in `data/civitai-request-spec.json`.
 - Reload spec and retry.
-- If Offline mode is enabled, confirm ready cached videos exist (`GET /api/cache/stats`) or disable Offline mode.
-- Prefetch depth still applies in Offline mode; `/api/prefetch` runs local-only and does not download.
+- If `Offline Video Mode` is enabled, confirm ready cached videos exist (`GET /api/cache/stats`) or switch mode.
+- If `Offline Image Mode` is enabled, confirm files exist under `data/cache/images` and reinitialize feed.
+- Prefetch depth still applies in both offline modes; `/api/prefetch` runs local-only and does not download.
 
 ### Video playback fails
 
 - Confirm video exists in DB via feed API first.
 - Check download status in `GET /api/cache/stats` and logs.
 - If file is corrupt/empty, request same video again to redownload.
-- In Offline mode, uncached videos are intentionally blocked with `409`.
+- In `Offline Video Mode`, uncached videos are intentionally blocked with `409`.
+- In `Offline Image Mode`, `/api/video/:id` is intentionally blocked with `409`.
 
-### Offline mode behavior
+### Offline Mode Behavior
 
-- `GET /api/auth/status` returns synthetic valid status while Offline mode is enabled.
-- `POST /api/auth/cookies` and `POST /api/spec/reload` return `409` while Offline mode is enabled.
-- `POST /api/prefetch` stays enabled in Offline mode and returns local-only prefetch status.
-- Bottom-right feed controls switch from online sort/period to offline order (`Newest`, `Oldest`, `Random`).
-- If no cached-ready videos exist, the app shows a centered empty-state overlay instead of a blank feed.
+- `GET /api/auth/status` returns synthetic valid status while either offline mode is enabled.
+- `POST /api/auth/cookies` and `POST /api/spec/reload` return `409` while either offline mode is enabled.
+- `POST /api/prefetch` stays enabled in both offline modes and returns local-only prefetch status.
+- Bottom-right feed controls switch from online sort/period to offline order (`Newest`, `Oldest`, `Random`) in both offline modes.
+- In `Offline Image Mode`, likes endpoints and author-feed endpoints are blocked with `409`.
+- If no eligible items exist, the app shows a centered empty-state overlay instead of a blank feed.
 
 ### Black bar between videos
 

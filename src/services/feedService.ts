@@ -3,9 +3,10 @@ import type { AppConfig } from "../config";
 import { AppDb } from "../db";
 import { logger } from "../logger";
 import { SessionStore } from "../sessionStore";
-import type { FeedPage, OfflineFeedOrder, VideoRecord } from "../types";
+import type { FeedMode, FeedPage, OfflineFeedOrder, VideoRecord } from "../types";
 import { normalizeFeedResponse } from "./feedNormalizer";
 import { CivitaiClient } from "../civitai/client";
+import { ImageCatalogService } from "./imageCatalogService";
 
 export class FeedService {
   private readonly servedIdsByMode = new Map<string, Set<string>>();
@@ -20,12 +21,17 @@ export class FeedService {
     private readonly config: AppConfig,
     private readonly db: AppDb,
     private readonly sessionStore: SessionStore,
-    private readonly civitaiClient: CivitaiClient
+    private readonly civitaiClient: CivitaiClient,
+    private readonly imageCatalogService: ImageCatalogService
   ) {}
 
   async getNextFeed(cursor: string | null, limit: number, authorFilter?: string | null): Promise<FeedPage> {
-    if (this.config.settings.offlineModeEnabled) {
-      return this.getNextOfflineFeed(cursor, limit, authorFilter);
+    const feedMode = this.getFeedMode();
+    if (feedMode === "offline_video") {
+      return this.getNextOfflineVideoFeed(cursor, limit, authorFilter);
+    }
+    if (feedMode === "offline_image") {
+      return this.getNextOfflineImageFeed(cursor, limit);
     }
 
     const cookies = this.sessionStore.getCookies();
@@ -94,7 +100,7 @@ export class FeedService {
       const cursorAdvanced = Boolean(nextCursor && nextCursor !== requestCursor);
       if (deduped.length > 0 || !cursorAdvanced) {
         return {
-          items: deduped,
+          items: this.asVideoItems(deduped),
           nextCursor,
           page: this.parseCursorToPage(nextCursor)
         };
@@ -114,11 +120,32 @@ export class FeedService {
     return this.db.getVideo(videoId);
   }
 
+  getFeedMode(): FeedMode {
+    const configured = (this.config.settings.feedMode ?? "").trim().toLowerCase();
+    if (configured === "offline_video" || configured === "offline_image" || configured === "online") {
+      return configured;
+    }
+    const legacyOffline = (this.config.settings as unknown as { offlineModeEnabled?: boolean }).offlineModeEnabled;
+    if (legacyOffline === true) {
+      return "offline_video";
+    }
+    return "online";
+  }
+
+  async resolveImageById(imageId: string): Promise<{ path: string; mimeType: string } | null> {
+    return this.imageCatalogService.resolveImagePathById(imageId);
+  }
+
+  async prefetchImageIds(ids: string[]): Promise<{ queued: string[]; skipped: string[] }> {
+    return this.imageCatalogService.warmImageIds(ids);
+  }
+
   resetInMemoryState(): void {
     this.servedIdsByMode.clear();
     this.offlineRandomOrderByMode.clear();
     this.authorTotalsCache.clear();
     this.authorTotalsInFlight.clear();
+    this.imageCatalogService.reset();
   }
 
   async getAuthorVideoTotal(
@@ -130,7 +157,12 @@ export class FeedService {
       throw new Error("author is required");
     }
 
-    if (this.config.settings.offlineModeEnabled) {
+    const mode = this.getFeedMode();
+    if (mode === "offline_image") {
+      throw new Error("Offline image mode enabled: action unavailable");
+    }
+
+    if (mode === "offline_video") {
       const totalVideos = this.db
         .listOfflineReadyEntries(normalizedAuthor)
         .filter((entry) => this.hasReadyLocalFile(entry.localPath)).length;
@@ -246,7 +278,16 @@ export class FeedService {
     };
   }
 
-  private async getNextOfflineFeed(cursor: string | null, limit: number, authorFilter?: string | null): Promise<FeedPage> {
+  private async getNextOfflineImageFeed(cursor: string | null, limit: number): Promise<FeedPage> {
+    return this.imageCatalogService.listFeedPage({
+      cursor,
+      limit,
+      order: this.normalizeOfflineFeedOrder(this.config.settings.offlineFeedOrder),
+      randomKey: "image-mode"
+    });
+  }
+
+  private async getNextOfflineVideoFeed(cursor: string | null, limit: number, authorFilter?: string | null): Promise<FeedPage> {
     const safeLimit = Math.max(1, Math.min(20, Math.trunc(limit)));
     const author = (authorFilter ?? "").trim() || null;
     const order = this.normalizeOfflineFeedOrder(this.config.settings.offlineFeedOrder);
@@ -302,7 +343,7 @@ export class FeedService {
 
     const nextCursor = scanOffset < totalRows ? String(scanOffset) : null;
     return {
-      items,
+      items: this.asVideoItems(items),
       nextCursor,
       page: this.parseOfflinePage(offset, limit)
     };
@@ -335,7 +376,7 @@ export class FeedService {
     const nextCursor = nextOffset < order.length ? String(nextOffset) : null;
 
     return {
-      items,
+      items: this.asVideoItems(items),
       nextCursor,
       page: this.parseOfflinePage(offset, limit)
     };
@@ -380,6 +421,13 @@ export class FeedService {
     for (const item of items) {
       item.liked = likedIds.has(item.id);
     }
+  }
+
+  private asVideoItems(items: VideoRecord[]): VideoRecord[] {
+    return items.map((item) => ({
+      ...item,
+      kind: "video"
+    }));
   }
 
   private parseCursorToPage(cursor: string | null): number {

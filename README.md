@@ -47,6 +47,7 @@ npm run dev
 - `GET /api/feed/author-stats?author=...`
 - `POST /api/prefetch`
 - `GET /api/video/:id`
+- `GET /api/image/:id`
 - `GET /api/settings`
 - `PUT /api/settings`
 - `GET /api/cache/stats`
@@ -57,7 +58,7 @@ npm run dev
 ## Data Layout
 
 - `data/cache/videos/*.webm` - cached media
-- `data/cache/thumbs/` - reserved for future use
+- `data/cache/images/**/*` - offline image-mode source files (recursive)
 - `data/slopscroll.db` - SQLite index
 - `data/session/auth.json` - imported cookies
 - `data/civitai-request-spec.json` - feed request spec
@@ -73,12 +74,16 @@ npm run dev
   - Back arrow returns to the exact main-feed position where author feed was opened.
   - Clicking `SlopScroll` always reinitializes main feed.
 - Feed loading overlay appears during feed initialization and active-video buffering/loading.
-- Offline mode is persisted in settings:
-  - When enabled, feed and author feed are served from ready local cache only (no Civitai requests).
-  - Top bar shows `OFFLINE` badge and bottom-right controls switch to `Newest / Oldest / Random`.
-  - Empty cache in offline mode shows a centered empty-state overlay.
-  - Online-only actions (`/api/auth/cookies`, `/api/spec/reload`) return `409`.
-  - `/api/prefetch` remains available and works in local-only mode (no network).
+- Feed mode is persisted in settings (`online | offline_video | offline_image`):
+  - `online`: normal Civitai-backed video feed.
+  - `offline_video`: main/author feeds from ready local cached videos only (no Civitai requests).
+  - `offline_image`: feed from local files under `data/cache/images` only.
+  - Top bar badge shows `OFFLINE VIDEO` or `OFFLINE IMAGE` when not in online mode.
+  - Bottom-right controls switch to offline order (`Newest / Oldest / Random`) in both offline modes.
+  - Empty offline feeds show a centered non-blocking empty-state overlay.
+  - Online-only actions (`/api/auth/cookies`, `/api/spec/reload`) return `409` in both offline modes.
+  - In `offline_image`, likes and author feed are disabled (UI hidden + API `409`).
+  - `/api/prefetch` remains available in both offline modes and runs local-only behavior.
 - Audio loop controls include:
   - Toggle: automatic random switching (uses min/max window).
   - Toggle: switch loop on video change.

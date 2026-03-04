@@ -38,9 +38,9 @@
 - [ ] Settings apply instantly when controls change (no Save Settings button).
 - [ ] In author feed, back arrow returns to exact previous position in main feed.
 - [ ] Clicking `SlopScroll` reinitializes main feed from start.
-- [ ] Offline badge appears in header when Offline mode is enabled.
-- [ ] Offline mode replaces sort/period controls with `Newest / Oldest / Random`.
-- [ ] Offline mode with zero cache shows centered empty-state overlay.
+- [ ] Mode badge appears in header (`OFFLINE VIDEO` or `OFFLINE IMAGE`) when not in online mode.
+- [ ] Both offline modes replace sort/period controls with `Newest / Oldest / Random`.
+- [ ] Offline mode with zero eligible items shows centered empty-state overlay.
 
 ## Audio Behavior
 
@@ -49,15 +49,19 @@
 - [ ] With audio enabled + both switch toggles disabled, current loop continues indefinitely.
 - [ ] Audio switch toggles and numeric settings become effective immediately after UI change.
 
-## Offline Mode
+## Feed Modes
 
-- [ ] Enabling Offline mode immediately reinitializes feed and serves cached-ready items only.
-- [ ] While Offline mode is enabled, no outbound requests to `civitai.com` / `civit.ai` occur during browsing/playback.
-- [ ] Offline author feed and author totals are computed from local ready cache only.
-- [ ] `POST /api/auth/cookies` and `POST /api/spec/reload` return `409` with offline reason.
-- [ ] `POST /api/prefetch` remains available in Offline mode and performs local-only prefetch behavior.
-- [ ] `GET /api/auth/status` returns synthetic valid offline status.
-- [ ] `GET /api/video/:id` in offline mode streams ready cached files and returns `409` for uncached/missing files.
+- [ ] Feed mode setting persists and applies immediately (`online`, `offline_video`, `offline_image`).
+- [ ] While either offline mode is enabled, no outbound requests to `civitai.com` / `civit.ai` occur during browsing/playback.
+- [ ] `offline_video`: author feed and author totals are computed from local ready cache only.
+- [ ] `offline_video`: `GET /api/video/:id` streams ready cached files and returns `409` for uncached/missing files.
+- [ ] `offline_image`: feed is served from recursive files under `data/cache/images`.
+- [ ] `offline_image`: feed renders images (not videos) with filename + counter.
+- [ ] `offline_image`: author navigation and likes UI are hidden/disabled.
+- [ ] `offline_image`: `/api/feed/author-stats`, likes routes, and `/api/video/:id` return `409`.
+- [ ] `POST /api/auth/cookies` and `POST /api/spec/reload` return `409` in both offline modes.
+- [ ] `POST /api/prefetch` remains available in both offline modes and performs local-only prefetch behavior.
+- [ ] `GET /api/auth/status` returns synthetic valid status in both offline modes.
 
 ## Ops
 

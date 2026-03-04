@@ -9,7 +9,7 @@ import { PrefetchService } from "../services/prefetchService";
 import { AudioLibraryService } from "../services/audioLibraryService";
 import type { AppConfig } from "../config";
 import { loadRequestSpec } from "../config";
-import type { FeedPeriod, FeedSort, OfflineFeedOrder } from "../types";
+import type { FeedMode, FeedPeriod, FeedSort, OfflineFeedOrder } from "../types";
 
 interface Dependencies {
   config: AppConfig;
@@ -28,6 +28,7 @@ function clamp(value: number, min: number, max: number): number {
 
 const FEED_SORT_VALUES: FeedSort[] = ["Most Reactions", "Most Comments", "Most Collected", "Newest", "Oldest"];
 const FEED_PERIOD_VALUES: FeedPeriod[] = ["Day", "Week", "Month", "Year", "AllTime"];
+const FEED_MODE_VALUES: FeedMode[] = ["online", "offline_video", "offline_image"];
 const OFFLINE_FEED_ORDER_VALUES: OfflineFeedOrder[] = ["Newest", "Oldest", "Random"];
 
 function normalizeFeedSort(value: unknown, fallback: FeedSort): FeedSort {
@@ -57,21 +58,41 @@ function normalizeOfflineFeedOrder(value: unknown, fallback: OfflineFeedOrder): 
   return match ?? fallback;
 }
 
+function normalizeFeedMode(value: unknown, fallback: FeedMode): FeedMode {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  const match = FEED_MODE_VALUES.find((candidate) => candidate.toLowerCase() === normalized);
+  return match ?? fallback;
+}
+
 export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies): Promise<void> {
-  const isOfflineModeEnabled = (): boolean => deps.config.settings.offlineModeEnabled === true;
-  const offlineUnavailable = (reply: { code: (statusCode: number) => unknown }, message = "Offline mode enabled: action unavailable") => {
+  const currentFeedMode = (): FeedMode => deps.feedService.getFeedMode();
+  const isOfflineVideoMode = (): boolean => currentFeedMode() === "offline_video";
+  const isOfflineImageMode = (): boolean => currentFeedMode() === "offline_image";
+  const isAnyOfflineMode = (): boolean => currentFeedMode() !== "online";
+  const defaultOfflineMessage = (): string =>
+    currentFeedMode() === "offline_image"
+      ? "Offline image mode enabled: action unavailable"
+      : "Offline video mode enabled: action unavailable";
+  const offlineUnavailable = (
+    reply: { code: (statusCode: number) => unknown },
+    message = defaultOfflineMessage()
+  ) => {
     reply.code(409);
     return {
       ok: false,
       error: message,
-      offlineMode: true
+      offlineMode: true,
+      feedMode: currentFeedMode()
     };
   };
 
   app.get("/api/health", async () => ({ ok: true, ts: new Date().toISOString() }));
 
   app.post<{ Body: { cookies?: string } }>("/api/auth/cookies", async (req, reply) => {
-    if (isOfflineModeEnabled()) {
+    if (isAnyOfflineMode()) {
       return offlineUnavailable(reply);
     }
 
@@ -92,12 +113,13 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
   });
 
   app.get("/api/auth/status", async () => {
-    if (isOfflineModeEnabled()) {
+    if (isAnyOfflineMode()) {
       return {
         isValid: true,
         checkedAt: new Date().toISOString(),
-        failureReason: "Offline mode enabled: using local cache only",
-        offlineMode: true
+        failureReason: currentFeedMode() === "offline_image" ? "Offline image mode enabled: using local files only" : "Offline video mode enabled: using local cache only",
+        offlineMode: true,
+        feedMode: currentFeedMode()
       };
     }
 
@@ -114,7 +136,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
   });
 
   app.post("/api/spec/reload", async (_req, reply) => {
-    if (isOfflineModeEnabled()) {
+    if (isAnyOfflineMode()) {
       return offlineUnavailable(reply);
     }
 
@@ -132,6 +154,9 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
     const limit = clamp(Number.parseInt(req.query.limit ?? "10", 10) || 10, 1, 20);
     const cursor = req.query.cursor?.trim() || null;
     const author = req.query.author?.trim() || null;
+    if (isOfflineImageMode() && author) {
+      return offlineUnavailable(reply, "Offline image mode enabled: author feed unavailable");
+    }
 
     try {
       const page = await deps.feedService.getNextFeed(cursor, limit, author);
@@ -153,6 +178,10 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
   });
 
   app.get<{ Querystring: { author?: string; refresh?: string } }>("/api/feed/author-stats", async (req, reply) => {
+    if (isOfflineImageMode()) {
+      return offlineUnavailable(reply, "Offline image mode enabled: action unavailable");
+    }
+
     const author = req.query.author?.trim() || "";
     if (!author) {
       reply.code(400);
@@ -195,7 +224,18 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
       };
     }
 
-    if (isOfflineModeEnabled()) {
+    if (isOfflineImageMode()) {
+      const result = await deps.feedService.prefetchImageIds(ids);
+      return {
+        ok: true,
+        ...result,
+        offlineMode: true,
+        localOnly: true,
+        feedMode: currentFeedMode()
+      };
+    }
+
+    if (isOfflineVideoMode()) {
       const queued: string[] = [];
       const skipped: string[] = [];
       for (const videoId of ids) {
@@ -216,7 +256,8 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
         queued,
         skipped,
         offlineMode: true,
-        localOnly: true
+        localOnly: true,
+        feedMode: currentFeedMode()
       };
     }
 
@@ -228,7 +269,11 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
   });
 
   app.get<{ Params: { id: string } }>("/api/video/:id", async (req, reply) => {
-    if (isOfflineModeEnabled()) {
+    if (isOfflineImageMode()) {
+      return offlineUnavailable(reply, "Offline image mode enabled: video playback unavailable");
+    }
+
+    if (isOfflineVideoMode()) {
       const entry = deps.db.getCacheEntry(req.params.id);
       if (!entry || entry.status !== "ready" || !fs.existsSync(entry.localPath)) {
         return offlineUnavailable(reply, "Offline mode enabled: requested video is not available in ready local cache");
@@ -268,6 +313,36 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
     }
   });
 
+  app.get<{ Params: { id: string } }>("/api/image/:id", async (req, reply) => {
+    if (!isOfflineImageMode()) {
+      return offlineUnavailable(reply, "Offline image mode disabled: action unavailable");
+    }
+
+    const resolved = await deps.feedService.resolveImageById(req.params.id);
+    if (!resolved) {
+      reply.code(404);
+      return {
+        ok: false,
+        error: "Image not found"
+      };
+    }
+
+    try {
+      const stat = await fs.promises.stat(resolved.path);
+      reply.header("Content-Type", resolved.mimeType);
+      reply.header("Content-Length", String(stat.size));
+      reply.header("Cache-Control", "public, max-age=3600");
+      return reply.send(fs.createReadStream(resolved.path));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500);
+      return {
+        ok: false,
+        error: message
+      };
+    }
+  });
+
   app.get("/api/settings", async () => {
     const settings = deps.db.getSettings(deps.config.settings);
     deps.config.settings = settings;
@@ -277,7 +352,10 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
     };
   });
 
-  app.get("/api/likes/users", async () => {
+  app.get("/api/likes/users", async (_req, reply) => {
+    if (isOfflineImageMode()) {
+      return offlineUnavailable(reply, "Offline image mode enabled: action unavailable");
+    }
     return {
       ok: true,
       users: deps.db.listLikedUsers()
@@ -285,6 +363,10 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
   });
 
   app.post<{ Body: { username?: string; liked?: boolean } }>("/api/likes/user", async (req, reply) => {
+    if (isOfflineImageMode()) {
+      return offlineUnavailable(reply, "Offline image mode enabled: action unavailable");
+    }
+
     const username = (req.body?.username ?? "").trim().toLowerCase();
     if (!username) {
       reply.code(400);
@@ -310,6 +392,10 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
   });
 
   app.post<{ Body: { videoId?: string; liked?: boolean } }>("/api/likes/video", async (req, reply) => {
+    if (isOfflineImageMode()) {
+      return offlineUnavailable(reply, "Offline image mode enabled: action unavailable");
+    }
+
     const videoId = (req.body?.videoId ?? "").trim();
     if (!videoId) {
       reply.code(400);
@@ -358,6 +444,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
       browsingLevelXXX?: boolean;
       feedSort?: string;
       feedPeriod?: string;
+      feedMode?: string;
       offlineModeEnabled?: boolean;
       offlineFeedOrder?: string;
     };
@@ -371,6 +458,13 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
     const normalizedAudioMin = Math.min(audioMinSwitchSec, audioMaxSwitchSec);
     const normalizedAudioMax = Math.max(audioMinSwitchSec, audioMaxSwitchSec);
     const normalizedAudioCrossfade = Math.max(0, Math.min(30, requestedAudioCrossfade));
+
+    const legacyOfflineEnabled = typeof req.body?.offlineModeEnabled === "boolean" ? req.body.offlineModeEnabled : null;
+
+    const normalizedFeedMode = normalizeFeedMode(
+      req.body?.feedMode,
+      legacyOfflineEnabled == null ? existing.feedMode : legacyOfflineEnabled ? "offline_video" : "online"
+    );
 
     const next = {
       prefetchDepth: clamp(Number(req.body?.prefetchDepth ?? existing.prefetchDepth), 0, 10),
@@ -388,7 +482,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
       browsingLevelXXX: Boolean(req.body?.browsingLevelXXX ?? existing.browsingLevelXXX),
       feedSort: normalizeFeedSort(req.body?.feedSort, existing.feedSort),
       feedPeriod: normalizeFeedPeriod(req.body?.feedPeriod, existing.feedPeriod),
-      offlineModeEnabled: Boolean(req.body?.offlineModeEnabled ?? existing.offlineModeEnabled),
+      feedMode: normalizedFeedMode,
       offlineFeedOrder: normalizeOfflineFeedOrder(req.body?.offlineFeedOrder, existing.offlineFeedOrder)
     };
 
@@ -413,7 +507,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
       next.browsingLevelR !== existing.browsingLevelR ||
       next.browsingLevelX !== existing.browsingLevelX ||
       next.browsingLevelXXX !== existing.browsingLevelXXX ||
-      next.offlineModeEnabled !== existing.offlineModeEnabled ||
+      next.feedMode !== existing.feedMode ||
       next.offlineFeedOrder !== existing.offlineFeedOrder
     ) {
       deps.feedService.resetInMemoryState();

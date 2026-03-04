@@ -17,7 +17,7 @@
     "browsingLevelXXX": true,
     "feedSort": "Newest",
     "feedPeriod": "Week",
-    "offlineModeEnabled": false,
+    "feedMode": "online",
     "offlineFeedOrder": "Newest"
   },
   "civitai": {

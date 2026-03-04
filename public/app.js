@@ -31,7 +31,7 @@
     browsingLevelXXX: true,
     feedSort: "Newest",
     feedPeriod: "Week",
-    offlineModeEnabled: false,
+    feedMode: "online",
     offlineFeedOrder: "Newest",
     sortMenuOpen: false,
     periodMenuOpen: false,
@@ -55,7 +55,8 @@
     restoringMainFeed: false,
     likedUsers: new Set(),
     likedUsersListOpen: false,
-    likedUsersLastUpdatedAt: null
+    likedUsersLastUpdatedAt: null,
+    feedTotalCount: null
   };
 
   const refs = {
@@ -65,7 +66,7 @@
     authState: document.getElementById("auth-state"),
     cookieInput: document.getElementById("cookie-input"),
     prefetchDepth: document.getElementById("prefetch-depth"),
-    offlineModeEnabled: document.getElementById("offline-mode-enabled"),
+    feedMode: document.getElementById("feed-mode"),
     audioEnabled: document.getElementById("audio-enabled"),
     audioAutoSwitchEnabled: document.getElementById("audio-auto-switch-enabled"),
     audioSwitchOnVideoChangeEnabled: document.getElementById("audio-switch-on-video-change-enabled"),
@@ -108,10 +109,13 @@
     offlineOrderControl: document.getElementById("offline-order-control"),
     btnShowLikedUsers: document.getElementById("btn-show-liked-users"),
     likedUsersList: document.getElementById("liked-users-list"),
+    likesSection: document.getElementById("likes-section"),
     fixedMeta: document.getElementById("fixed-meta"),
     fixedMetaMain: document.getElementById("fixed-meta-main"),
     fixedMetaSub: document.getElementById("fixed-meta-sub"),
-    overlayOfflineEmpty: document.getElementById("overlay-offline-empty")
+    overlayOfflineEmpty: document.getElementById("overlay-offline-empty"),
+    offlineEmptyTitle: document.getElementById("offline-empty-title"),
+    offlineEmptySubtitle: document.getElementById("offline-empty-subtitle")
   };
 
   const observer = new IntersectionObserver(onIntersect, {
@@ -119,6 +123,7 @@
   });
   const FEED_SORT_OPTIONS = ["Most Reactions", "Most Comments", "Most Collected", "Newest", "Oldest"];
   const FEED_PERIOD_OPTIONS = ["Day", "Week", "Month", "Year", "AllTime"];
+  const FEED_MODE_OPTIONS = ["online", "offline_video", "offline_image"];
   const OFFLINE_FEED_ORDER_OPTIONS = ["Newest", "Oldest", "Random"];
   const VIDEO_KEEP_BEHIND = 10;
   const VIDEO_KEEP_AHEAD = 2;
@@ -169,8 +174,8 @@
   }
 
   function setAuthPill(isValid, reason) {
-    const effectiveValid = Boolean(isValid) || state.offlineModeEnabled;
-    const label = state.offlineModeEnabled && effectiveValid ? "valid (offline)" : isValid ? "valid" : `invalid${reason ? `: ${reason}` : ""}`;
+    const effectiveValid = Boolean(isValid) || isOfflineFeedMode();
+    const label = isOfflineFeedMode() && effectiveValid ? "valid (offline)" : isValid ? "valid" : `invalid${reason ? `: ${reason}` : ""}`;
     refs.authState.textContent = label;
     refs.authState.classList.toggle("ok", effectiveValid);
     refs.authState.classList.toggle("bad", !effectiveValid);
@@ -241,6 +246,22 @@
       .toLowerCase();
     const match = OFFLINE_FEED_ORDER_OPTIONS.find((candidate) => candidate.toLowerCase() === normalized);
     return match || fallback;
+  }
+
+  function normalizeFeedMode(value, fallback = "online") {
+    const normalized = String(value || "")
+      .trim()
+      .toLowerCase();
+    const match = FEED_MODE_OPTIONS.find((candidate) => candidate.toLowerCase() === normalized);
+    return match || fallback;
+  }
+
+  function isOfflineFeedMode() {
+    return state.feedMode !== "online";
+  }
+
+  function isOfflineImageMode() {
+    return state.feedMode === "offline_image";
   }
 
   function setHeartButtonState(button, liked, labelBase) {
@@ -347,6 +368,13 @@
   }
 
   async function loadLikedUsers() {
+    if (isOfflineImageMode()) {
+      state.likedUsers = new Set();
+      state.likedUsersLastUpdatedAt = Date.now();
+      renderLikedUsersList();
+      return;
+    }
+
     const result = await api(`/api/likes/users?_ts=${Date.now()}`);
     const next = new Set();
     if (Array.isArray(result.users)) {
@@ -363,6 +391,10 @@
   }
 
   async function toggleSelectedAuthorLike() {
+    if (isOfflineImageMode()) {
+      return;
+    }
+
     const username = normalizeAuthorKey(state.selectedAuthor);
     if (!username) {
       return;
@@ -391,6 +423,10 @@
   }
 
   async function setVideoLike(videoId, liked) {
+    if (isOfflineImageMode()) {
+      return;
+    }
+
     if (!videoId) {
       return;
     }
@@ -478,6 +514,21 @@
     refs.fixedMeta.classList.remove("hidden");
     refs.fixedMetaMain.innerHTML = "";
     refs.fixedMetaSub.innerHTML = "";
+
+    if (item.kind === "image") {
+      const fileName = String(item.fileName || item.relativePath || "Image");
+      const title = document.createElement("span");
+      title.textContent = fileName;
+      refs.fixedMetaMain.appendChild(title);
+
+      const total = Number.isInteger(state.feedTotalCount) ? Math.max(state.feedTotalCount, state.items.length) : state.items.length;
+      const counter = document.createElement("span");
+      counter.className = "author-counter";
+      counter.textContent = `${index + 1}/${Math.max(total, index + 1)}`;
+      refs.fixedMetaMain.appendChild(counter);
+      return;
+    }
+
     const sourceUrl = item.pageUrl || item.mediaUrl;
     const isAuthorFeedItem = Boolean(
       state.selectedAuthor && item.author && normalizeAuthorKey(item.author) === normalizeAuthorKey(state.selectedAuthor)
@@ -531,7 +582,7 @@
         counter.textContent = `${index + 1}/${getSelectedAuthorTotalLabel()}`;
         refs.fixedMetaMain.appendChild(counter);
         refs.fixedMetaMain.appendChild(createVideoHeart());
-      } else {
+      } else if (!isOfflineImageMode()) {
         const authorBtn = document.createElement("button");
         authorBtn.type = "button";
         authorBtn.className = "author-link";
@@ -544,6 +595,11 @@
         });
         refs.fixedMetaMain.appendChild(authorBtn);
         refs.fixedMetaMain.appendChild(createVideoHeart());
+      } else {
+        const authorText = document.createElement("span");
+        authorText.className = "author-link";
+        authorText.textContent = `@${item.author}`;
+        refs.fixedMetaMain.appendChild(authorText);
       }
     } else {
       const fallback = document.createElement("span");
@@ -564,6 +620,17 @@
       return base;
     }
     return `${base}?_reload=${reloadToken}`;
+  }
+
+  function buildImageApiUrl(imageUrl, reloadToken) {
+    if (!imageUrl) {
+      return "";
+    }
+    if (!Number.isInteger(reloadToken)) {
+      return imageUrl;
+    }
+    const joiner = imageUrl.includes("?") ? "&" : "?";
+    return `${imageUrl}${joiner}_reload=${reloadToken}`;
   }
 
   function attachVideoSource(video, videoId, forceReload = false) {
@@ -595,6 +662,30 @@
     video.load();
   }
 
+  function attachImageSource(image, imageUrl, forceReload = false) {
+    if (!image || !imageUrl) {
+      return;
+    }
+    if (!forceReload && image.getAttribute("src")) {
+      return;
+    }
+
+    let reloadToken = null;
+    if (forceReload) {
+      state.videoReloadSeq += 1;
+      reloadToken = state.videoReloadSeq;
+    }
+
+    image.src = buildImageApiUrl(imageUrl, reloadToken);
+  }
+
+  function detachImageSource(image) {
+    if (!image || !image.getAttribute("src")) {
+      return;
+    }
+    image.removeAttribute("src");
+  }
+
   function isActiveCardNode(node) {
     if (!node) {
       return false;
@@ -617,10 +708,33 @@
       if (!Number.isInteger(idx) || idx < 0) {
         return;
       }
-      const video = card.querySelector("video");
-      const videoId = card.dataset.videoId;
+      const kind = card.dataset.kind || "video";
       const keepLoaded = idx >= keepStart && idx <= keepEnd;
 
+      if (kind === "image") {
+        const image = card.querySelector("img");
+        const imageUrl = card.dataset.imageUrl;
+        if (!image) {
+          return;
+        }
+        if (keepLoaded) {
+          if (!image.getAttribute("src")) {
+            attachImageSource(image, imageUrl, true);
+          }
+          return;
+        }
+        if (!image.getAttribute("src")) {
+          return;
+        }
+        detachImageSource(image);
+        return;
+      }
+
+      const video = card.querySelector("video");
+      const videoId = card.dataset.videoId;
+      if (!video) {
+        return;
+      }
       if (keepLoaded) {
         if (!video.getAttribute("src")) {
           attachVideoSource(video, videoId, true);
@@ -629,7 +743,7 @@
         return;
       }
 
-      if (!video.getAttribute("src")) {
+      if (!video || !video.getAttribute("src")) {
         return;
       }
 
@@ -638,58 +752,103 @@
   }
 
   function renderItem(item, index) {
+    const isImage = item.kind === "image";
     const node = refs.tpl.content.firstElementChild.cloneNode(true);
-    node.dataset.videoId = item.id;
+    node.dataset.kind = isImage ? "image" : "video";
+    if (isImage) {
+      node.dataset.imageUrl = item.imageUrl;
+    } else {
+      node.dataset.videoId = item.id;
+    }
     node.dataset.idx = String(index);
 
-    const video = node.querySelector("video");
-    video.loop = true;
-    video.muted = true;
-    video.preload = state.isIosLike ? "auto" : "metadata";
-    video.playsInline = true;
+    const errorNode = node.querySelector(".error");
 
-    video.addEventListener("error", () => {
-      const suppressUntil = Number.parseInt(video.dataset.suppressErrorUntil || "0", 10);
-      if (Date.now() < suppressUntil) {
-        return;
+    if (isImage) {
+      const existingVideo = node.querySelector("video");
+      if (existingVideo) {
+        existingVideo.remove();
       }
-
-      const errorCode = Number(video.error?.code || 0);
-      const isAborted = errorCode === 1;
-      const err = node.querySelector(".error");
-      if (state.failedVideoIds.has(item.id)) {
-        return;
-      }
-      const idx = Number.parseInt(node.dataset.idx || "-1", 10);
-      const isActive = idx === state.activeIndex;
-      if (!isActive || isAborted || !video.getAttribute("src")) {
-        return;
-      }
-
-      state.failedVideoIds.add(item.id);
-      err.classList.remove("hidden");
-      err.textContent = "Playback failed. Check auth and source URL.";
-      if (idx === state.activeIndex) {
+      const image = document.createElement("img");
+      image.alt = item.fileName || "Offline image";
+      image.decoding = "async";
+      image.loading = "eager";
+      image.addEventListener("load", () => {
+        if (state.feedInitializing || !isActiveCardNode(node)) {
+          return;
+        }
         setActiveVideoLoading(false);
-        void skipBrokenActiveVideo(idx, item.id);
+      });
+      image.addEventListener("error", () => {
+        const idx = Number.parseInt(node.dataset.idx || "-1", 10);
+        if (idx !== state.activeIndex) {
+          return;
+        }
+        if (errorNode) {
+          errorNode.classList.remove("hidden");
+          errorNode.textContent = "Image failed to load.";
+        }
+        setActiveVideoLoading(false);
+      });
+      if (errorNode) {
+        node.insertBefore(image, errorNode);
+      } else {
+        node.appendChild(image);
       }
-    });
+    } else {
+      const video = node.querySelector("video");
+      if (!video) {
+        return;
+      }
+      video.loop = true;
+      video.muted = true;
+      video.preload = state.isIosLike ? "auto" : "metadata";
+      video.playsInline = true;
 
-    video.addEventListener("waiting", () => {
-      if (state.feedInitializing || !isActiveCardNode(node)) {
-        return;
-      }
-      setActiveVideoLoading(true);
-    });
-    const onReady = () => {
-      if (state.feedInitializing || !isActiveCardNode(node)) {
-        return;
-      }
-      setActiveVideoLoading(false);
-    };
-    video.addEventListener("loadeddata", onReady);
-    video.addEventListener("canplay", onReady);
-    video.addEventListener("playing", onReady);
+      video.addEventListener("error", () => {
+        const suppressUntil = Number.parseInt(video.dataset.suppressErrorUntil || "0", 10);
+        if (Date.now() < suppressUntil) {
+          return;
+        }
+
+        const errorCode = Number(video.error?.code || 0);
+        const isAborted = errorCode === 1;
+        if (state.failedVideoIds.has(item.id)) {
+          return;
+        }
+        const idx = Number.parseInt(node.dataset.idx || "-1", 10);
+        const isActive = idx === state.activeIndex;
+        if (!isActive || isAborted || !video.getAttribute("src")) {
+          return;
+        }
+
+        state.failedVideoIds.add(item.id);
+        if (errorNode) {
+          errorNode.classList.remove("hidden");
+          errorNode.textContent = "Playback failed. Check auth and source URL.";
+        }
+        if (idx === state.activeIndex) {
+          setActiveVideoLoading(false);
+          void skipBrokenActiveVideo(idx, item.id);
+        }
+      });
+
+      video.addEventListener("waiting", () => {
+        if (state.feedInitializing || !isActiveCardNode(node)) {
+          return;
+        }
+        setActiveVideoLoading(true);
+      });
+      const onReady = () => {
+        if (state.feedInitializing || !isActiveCardNode(node)) {
+          return;
+        }
+        setActiveVideoLoading(false);
+      };
+      video.addEventListener("loadeddata", onReady);
+      video.addEventListener("canplay", onReady);
+      video.addEventListener("playing", onReady);
+    }
 
     refs.feed.appendChild(node);
     observer.observe(node);
@@ -710,6 +869,11 @@
       const authorQuery = state.selectedAuthor ? `&author=${encodeURIComponent(state.selectedAuthor)}` : "";
       const result = await api(`/api/feed/next?limit=8${cursorQuery}${authorQuery}`);
       const start = state.items.length;
+      if (Number.isInteger(result.totalCount)) {
+        state.feedTotalCount = result.totalCount;
+      } else if (start === 0) {
+        state.feedTotalCount = null;
+      }
       state.items.push(...result.items);
 
       result.items.forEach((item, idx) => {
@@ -722,7 +886,7 @@
       state.nextCursor = result.nextCursor;
       if (result.items.length === 0) {
         const stillEmpty = state.items.length === 0 && start === 0;
-        if (state.offlineModeEnabled && stillEmpty) {
+        if (isOfflineFeedMode() && stillEmpty) {
           // Empty offline feeds are shown via persistent overlay.
         } else if (state.selectedAuthor) {
           showToast(`No additional videos for @${state.selectedAuthor}`);
@@ -745,6 +909,8 @@
   }
 
   function applySettingsSnapshot(settings) {
+    const previousMode = state.feedMode;
+    const legacyOfflineEnabled = Boolean(settings.offlineModeEnabled);
     const parsedPrefetchDepth = Number.parseInt(String(settings.prefetchDepth), 10);
     state.prefetchDepth = Number.isFinite(parsedPrefetchDepth) ? Math.max(0, Math.min(10, parsedPrefetchDepth)) : 3;
     state.audioEnabled = Boolean(settings.audioEnabled);
@@ -758,8 +924,12 @@
     state.browsingLevelXXX = Boolean(settings.browsingLevelXXX);
     state.feedSort = normalizeFeedSort(settings.feedSort, "Newest");
     state.feedPeriod = normalizeFeedPeriod(settings.feedPeriod, "Week");
-    state.offlineModeEnabled = Boolean(settings.offlineModeEnabled);
+    state.feedMode = normalizeFeedMode(settings.feedMode, legacyOfflineEnabled ? "offline_video" : "online");
     state.offlineFeedOrder = normalizeOfflineFeedOrder(settings.offlineFeedOrder, "Newest");
+    if (state.feedMode === "offline_image" && state.selectedAuthor) {
+      clearAuthorSelection();
+      state.mainFeedSnapshot = null;
+    }
     if (state.audioMaxSwitchSec < state.audioMinSwitchSec) {
       const tmp = state.audioMinSwitchSec;
       state.audioMinSwitchSec = state.audioMaxSwitchSec;
@@ -771,7 +941,7 @@
     refs.audioMinSwitchSec.value = String(state.audioMinSwitchSec);
     refs.audioMaxSwitchSec.value = String(state.audioMaxSwitchSec);
     refs.audioCrossfadeSec.value = String(state.audioCrossfadeSec);
-    refs.offlineModeEnabled.checked = state.offlineModeEnabled;
+    refs.feedMode.value = state.feedMode;
     refs.browsingLevelR.checked = state.browsingLevelR;
     refs.browsingLevelX.checked = state.browsingLevelX;
     refs.browsingLevelXXX.checked = state.browsingLevelXXX;
@@ -780,6 +950,10 @@
     syncPeriodControl();
     syncOfflineBadge();
     syncFeedFilterControls();
+    syncModeDependentControls();
+    if (previousMode !== state.feedMode) {
+      updateFeedModeUi();
+    }
     setAuthPill(state.authValid, null);
     updateOfflineEmptyState();
   }
@@ -990,7 +1164,13 @@
   }
 
   function syncOfflineBadge() {
-    refs.offlineBadge.classList.toggle("hidden", !state.offlineModeEnabled);
+    const offline = isOfflineFeedMode();
+    refs.offlineBadge.classList.toggle("hidden", !offline);
+    if (!offline) {
+      refs.offlineBadge.textContent = "OFFLINE";
+      return;
+    }
+    refs.offlineBadge.textContent = state.feedMode === "offline_image" ? "OFFLINE IMAGE" : "OFFLINE VIDEO";
   }
 
   function syncOfflineOrderControl() {
@@ -1006,7 +1186,7 @@
   }
 
   function syncFeedFilterControls() {
-    const offline = Boolean(state.offlineModeEnabled);
+    const offline = isOfflineFeedMode();
     refs.sortControl.classList.toggle("hidden", offline);
     refs.periodControl.classList.toggle("hidden", offline);
     refs.offlineOrderControl.classList.toggle("hidden", !offline);
@@ -1017,8 +1197,27 @@
     syncOfflineOrderControl();
   }
 
+  function syncModeDependentControls() {
+    const imageMode = isOfflineImageMode();
+    refs.likesSection.classList.toggle("hidden", imageMode);
+    if (imageMode) {
+      state.likedUsersListOpen = false;
+      refs.btnShowLikedUsers.textContent = "Show Liked Feeds";
+      refs.likedUsersList.classList.add("hidden");
+    }
+  }
+
   function updateOfflineEmptyState() {
-    const shouldShow = state.offlineModeEnabled && !state.feedInitializing && !state.loadingFeed && state.items.length === 0;
+    const shouldShow = isOfflineFeedMode() && !state.feedInitializing && !state.loadingFeed && state.items.length === 0;
+    if (shouldShow) {
+      if (isOfflineImageMode()) {
+        refs.offlineEmptyTitle.textContent = "No images found in data/cache/images.";
+        refs.offlineEmptySubtitle.textContent = "Add image files and reinitialize feed, or switch mode.";
+      } else {
+        refs.offlineEmptyTitle.textContent = "No cached videos available offline.";
+        refs.offlineEmptySubtitle.textContent = "Switch feed mode to Online to fetch from Civitai.";
+      }
+    }
     refs.overlayOfflineEmpty.classList.toggle("hidden", !shouldShow);
   }
 
@@ -1456,7 +1655,7 @@
     refs.btnToggleSettings.setAttribute("aria-expanded", next ? "true" : "false");
     if (!next && state.likedUsersListOpen) {
       state.likedUsersListOpen = false;
-      refs.btnShowLikedUsers.textContent = "Liked Feeds";
+      refs.btnShowLikedUsers.textContent = "Show Liked Feeds";
       renderLikedUsersList();
     }
   }
@@ -1466,6 +1665,10 @@
   }
 
   async function toggleLikedUsersList() {
+    if (isOfflineImageMode()) {
+      return;
+    }
+
     state.likedUsersListOpen = !state.likedUsersListOpen;
     if (state.likedUsersListOpen) {
       refs.btnShowLikedUsers.textContent = "Hide Liked Feeds";
@@ -1474,13 +1677,13 @@
       } catch (err) {
         showToast(`Liked feeds load failed: ${err.message}`, true);
         state.likedUsersListOpen = false;
-        refs.btnShowLikedUsers.textContent = "Liked Feeds";
+        refs.btnShowLikedUsers.textContent = "Show Liked Feeds";
         renderLikedUsersList();
       }
       return;
     }
 
-    refs.btnShowLikedUsers.textContent = "Liked Feeds";
+    refs.btnShowLikedUsers.textContent = "Show Liked Feeds";
     renderLikedUsersList();
   }
 
@@ -1629,6 +1832,18 @@
   }
 
   function updateFeedModeUi() {
+    if (isOfflineImageMode()) {
+      refs.navHome.classList.add("active");
+      refs.navHome.setAttribute("aria-current", "page");
+      refs.feedNav.classList.add("hidden");
+      refs.navBackMain.classList.add("hidden");
+      refs.navAuthor.classList.add("hidden");
+      refs.btnLikeAuthor.classList.add("hidden");
+      setHeartButtonState(refs.btnLikeAuthor, false, "user");
+      updateFixedMeta();
+      return;
+    }
+
     if (state.selectedAuthor) {
       const authorKey = normalizeAuthorKey(state.selectedAuthor);
       refs.navHome.classList.remove("active");
@@ -1654,6 +1869,10 @@
   }
 
   async function refreshAuthorTotal(authorRaw) {
+    if (isOfflineImageMode()) {
+      return;
+    }
+
     const author = (authorRaw || "").trim();
     if (!author) {
       return;
@@ -1693,6 +1912,7 @@
       observer.disconnect();
       refs.feed.innerHTML = "";
       state.items = [];
+      state.feedTotalCount = null;
       state.nextCursor = null;
       state.loadingFeed = false;
       state.activeIndex = -1;
@@ -1714,6 +1934,11 @@
   }
 
   async function switchToAuthor(authorRaw) {
+    if (isOfflineImageMode()) {
+      showToast("Author feed unavailable in Offline Image Mode", true);
+      return;
+    }
+
     const author = (authorRaw || "").trim();
     if (!author || author === state.selectedAuthor) {
       return;
@@ -1816,7 +2041,7 @@
     updateFeedModeUi();
     updateVideoMemoryWindow(index);
 
-    // Optional loop switch on feed advance.
+    // Optional loop switch on feed item advance.
     if (previousIndex >= 0 && index !== previousIndex) {
       if (state.audioSwitchOnVideoChangeEnabled) {
         requestAudioSwitch("feed-advance", true);
@@ -1824,9 +2049,24 @@
     }
 
     const cards = refs.feed.querySelectorAll(".video-card");
-    let activeVideo = null;
+    let activeMedia = null;
     cards.forEach((card, cardIndex) => {
+      const kind = card.dataset.kind || "video";
+      if (kind === "image") {
+        const image = card.querySelector("img");
+        if (!image) {
+          return;
+        }
+        if (cardIndex === index) {
+          activeMedia = image;
+        }
+        return;
+      }
+
       const video = card.querySelector("video");
+      if (!video) {
+        return;
+      }
       const videoId = card.dataset.videoId;
       const keepPreviousPlaying = state.isIosLike && previousIndex >= 0 && cardIndex === previousIndex;
       if (cardIndex === index || keepPreviousPlaying) {
@@ -1835,7 +2075,7 @@
           video.load();
         }
         if (cardIndex === index) {
-          activeVideo = video;
+          activeMedia = video;
         }
         video.play().catch(() => {});
       } else {
@@ -1844,8 +2084,14 @@
     });
 
     if (!state.feedInitializing) {
-      if (activeVideo) {
-        setActiveVideoLoading(activeVideo.readyState < 2);
+      if (activeMedia) {
+        if (activeMedia instanceof HTMLVideoElement) {
+          setActiveVideoLoading(activeMedia.readyState < 2);
+        } else if (activeMedia instanceof HTMLImageElement) {
+          setActiveVideoLoading(!activeMedia.complete);
+        } else {
+          setActiveVideoLoading(false);
+        }
       } else {
         setActiveVideoLoading(false);
       }
@@ -1999,20 +2245,43 @@
       refs.diskWarn.value = String(nextWarn);
       void persistSettingsPatch({ lowDiskWarnGb: nextWarn });
     });
-    refs.offlineModeEnabled.addEventListener("change", () => {
-      state.offlineModeEnabled = refs.offlineModeEnabled.checked;
+    refs.feedMode.addEventListener("change", () => {
+      const previousMode = state.feedMode;
+      const nextMode = normalizeFeedMode(refs.feedMode.value, state.feedMode);
+      state.feedMode = nextMode;
+      if (isOfflineImageMode()) {
+        clearAuthorSelection();
+        state.mainFeedSnapshot = null;
+      }
       syncOfflineBadge();
       syncFeedFilterControls();
+      syncModeDependentControls();
+      updateFeedModeUi();
       setAuthPill(state.authValid, null);
       updateOfflineEmptyState();
       void persistSettingsPatch(
         {
-          offlineModeEnabled: state.offlineModeEnabled
+          feedMode: state.feedMode
         },
         { reloadFeed: true, recheckAuth: true }
       ).then((saved) => {
-        if (saved) {
-          showToast(state.offlineModeEnabled ? "Offline mode enabled" : "Offline mode disabled");
+        if (!saved) {
+          state.feedMode = previousMode;
+          refs.feedMode.value = previousMode;
+          syncOfflineBadge();
+          syncFeedFilterControls();
+          syncModeDependentControls();
+          updateFeedModeUi();
+          setAuthPill(state.authValid, null);
+          updateOfflineEmptyState();
+          return;
+        }
+        if (state.feedMode === "online") {
+          showToast("Online mode enabled");
+        } else if (state.feedMode === "offline_video") {
+          showToast("Offline video mode enabled");
+        } else {
+          showToast("Offline image mode enabled");
         }
       });
     });
@@ -2159,14 +2428,17 @@
     syncPeriodControl();
     syncOfflineBadge();
     syncFeedFilterControls();
+    syncModeDependentControls();
     setFullscreenUi(Boolean(document.fullscreenElement));
     setSettingsPanelOpen(false);
     updateFeedModeUi();
     await loadSettings();
-    try {
-      await loadLikedUsers();
-    } catch {
-      // Keep UI usable; likes can still be toggled on demand.
+    if (!isOfflineImageMode()) {
+      try {
+        await loadLikedUsers();
+      } catch {
+        // Keep UI usable; likes can still be toggled on demand.
+      }
     }
     await refreshAudioLibrary(false);
     state.audioEnabled = false;

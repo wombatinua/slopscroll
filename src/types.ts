@@ -3,6 +3,7 @@ export interface VideoRecord {
   sourceUrl?: string;
   mediaUrl: string;
   pageUrl: string;
+  kind?: "video";
   duration?: number;
   author?: string;
   createdAt?: string;
@@ -35,6 +36,18 @@ export interface AuthState {
 export type FeedSort = "Most Reactions" | "Most Comments" | "Most Collected" | "Newest" | "Oldest";
 export type FeedPeriod = "Day" | "Week" | "Month" | "Year" | "AllTime";
 export type OfflineFeedOrder = "Newest" | "Oldest" | "Random";
+export type FeedMode = "online" | "offline_video" | "offline_image";
+
+export interface ImageRecord {
+  id: string;
+  kind: "image";
+  imageUrl: string;
+  fileName: string;
+  relativePath: string;
+  modifiedAt: string;
+}
+
+export type FeedItem = VideoRecord | ImageRecord;
 
 export interface Settings {
   prefetchDepth: number;
@@ -50,14 +63,15 @@ export interface Settings {
   browsingLevelXXX: boolean;
   feedSort: FeedSort;
   feedPeriod: FeedPeriod;
-  offlineModeEnabled: boolean;
+  feedMode: FeedMode;
   offlineFeedOrder: OfflineFeedOrder;
 }
 
 export interface FeedPage {
-  items: VideoRecord[];
+  items: FeedItem[];
   nextCursor: string | null;
   page: number;
+  totalCount?: number;
 }
 
 export interface FetchResult {

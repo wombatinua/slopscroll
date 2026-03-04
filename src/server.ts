@@ -9,6 +9,7 @@ import { AppDb } from "./db";
 import { SessionStore } from "./sessionStore";
 import { CivitaiClient } from "./civitai/client";
 import { FeedService } from "./services/feedService";
+import { ImageCatalogService } from "./services/imageCatalogService";
 import { CacheService } from "./services/cacheService";
 import { PrefetchService } from "./services/prefetchService";
 import { AudioLibraryService } from "./services/audioLibraryService";
@@ -20,7 +21,7 @@ async function bootstrap(): Promise<void> {
   ensureDir(config.dataDir);
   ensureDir(config.mediaDir);
   ensureDir(config.cacheVideosDir);
-  ensureDir(config.cacheThumbsDir);
+  ensureDir(config.cacheImagesDir);
   ensureDir(path.dirname(config.sessionPath));
 
   const db = new AppDb(config.dbPath);
@@ -31,7 +32,8 @@ async function bootstrap(): Promise<void> {
   const sessionStore = new SessionStore(config.sessionPath);
   const requestSpec = loadRequestSpec(config.requestSpecPath);
   const civitaiClient = new CivitaiClient(config, requestSpec);
-  const feedService = new FeedService(config, db, sessionStore, civitaiClient);
+  const imageCatalogService = new ImageCatalogService(config.cacheImagesDir);
+  const feedService = new FeedService(config, db, sessionStore, civitaiClient, imageCatalogService);
   const cacheService = new CacheService(db, config, sessionStore, civitaiClient);
   const prefetchService = new PrefetchService(feedService, cacheService);
   const audioLibraryService = new AudioLibraryService(config.mediaDir);

@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { ensureParentDir } from "./utils/fs";
-import type { CacheEntry, FeedPeriod, FeedSort, OfflineFeedOrder, Settings, VideoRecord } from "./types";
+import type { CacheEntry, FeedMode, FeedPeriod, FeedSort, OfflineFeedOrder, Settings, VideoRecord } from "./types";
 
 export interface CacheStats {
   totalVideos: number;
@@ -18,6 +18,7 @@ const METRIC_KEYS = ["cache_hits", "cache_misses", "download_failures", "auth_fa
 type MetricKey = (typeof METRIC_KEYS)[number];
 const FEED_SORT_VALUES: FeedSort[] = ["Most Reactions", "Most Comments", "Most Collected", "Newest", "Oldest"];
 const FEED_PERIOD_VALUES: FeedPeriod[] = ["Day", "Week", "Month", "Year", "AllTime"];
+const FEED_MODE_VALUES: FeedMode[] = ["online", "offline_video", "offline_image"];
 const OFFLINE_FEED_ORDER_VALUES: OfflineFeedOrder[] = ["Newest", "Oldest", "Random"];
 
 function normalizeFeedSort(value: string | undefined, fallback: FeedSort): FeedSort {
@@ -44,6 +45,15 @@ function normalizeOfflineFeedOrder(value: string | undefined, fallback: OfflineF
   }
   const normalized = value.trim().toLowerCase();
   const match = OFFLINE_FEED_ORDER_VALUES.find((candidate) => candidate.toLowerCase() === normalized);
+  return match ?? fallback;
+}
+
+function normalizeFeedMode(value: string | undefined, fallback: FeedMode): FeedMode {
+  if (!value) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  const match = FEED_MODE_VALUES.find((candidate) => candidate.toLowerCase() === normalized);
   return match ?? fallback;
 }
 
@@ -697,11 +707,12 @@ export class AppDb {
   getSettings(defaults: Settings): Settings {
     const rows = this.db
       .prepare(
-        `SELECT key, value FROM settings WHERE key IN ('prefetchDepth', 'lowDiskWarnGb', 'audioEnabled', 'audioAutoSwitchEnabled', 'audioSwitchOnVideoChangeEnabled', 'audioMinSwitchSec', 'audioMaxSwitchSec', 'audioCrossfadeSec', 'browsingLevelR', 'browsingLevelX', 'browsingLevelXXX', 'feedSort', 'feedPeriod', 'offlineModeEnabled', 'offlineFeedOrder')`
+        `SELECT key, value FROM settings WHERE key IN ('prefetchDepth', 'lowDiskWarnGb', 'audioEnabled', 'audioAutoSwitchEnabled', 'audioSwitchOnVideoChangeEnabled', 'audioMinSwitchSec', 'audioMaxSwitchSec', 'audioCrossfadeSec', 'browsingLevelR', 'browsingLevelX', 'browsingLevelXXX', 'feedSort', 'feedPeriod', 'feedMode', 'offlineModeEnabled', 'offlineFeedOrder')`
       )
       .all() as Array<{ key: string; value: string }>;
 
     const output: Settings = { ...defaults };
+    let hasPersistedFeedMode = false;
     for (const row of rows) {
       if (row.key === "prefetchDepth") {
         const parsed = Number.parseInt(row.value, 10);
@@ -757,8 +768,14 @@ export class AppDb {
       if (row.key === "feedPeriod") {
         output.feedPeriod = normalizeFeedPeriod(row.value, defaults.feedPeriod);
       }
+      if (row.key === "feedMode") {
+        output.feedMode = normalizeFeedMode(row.value, defaults.feedMode);
+        hasPersistedFeedMode = true;
+      }
       if (row.key === "offlineModeEnabled") {
-        output.offlineModeEnabled = row.value.toLowerCase() === "true";
+        if (!hasPersistedFeedMode && row.value.toLowerCase() === "true") {
+          output.feedMode = "offline_video";
+        }
       }
       if (row.key === "offlineFeedOrder") {
         output.offlineFeedOrder = normalizeOfflineFeedOrder(row.value, defaults.offlineFeedOrder);
@@ -790,7 +807,7 @@ export class AppDb {
       ["browsingLevelXXX", String(settings.browsingLevelXXX)],
       ["feedSort", settings.feedSort],
       ["feedPeriod", settings.feedPeriod],
-      ["offlineModeEnabled", String(settings.offlineModeEnabled)],
+      ["feedMode", settings.feedMode],
       ["offlineFeedOrder", settings.offlineFeedOrder]
     ]);
 

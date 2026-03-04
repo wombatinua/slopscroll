@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { CivitaiRequestSpec, FeedPeriod, FeedSort, OfflineFeedOrder, Settings } from "./types";
+import type { CivitaiRequestSpec, FeedMode, FeedPeriod, FeedSort, OfflineFeedOrder, Settings } from "./types";
 
 export interface AppConfig {
   host: string;
@@ -8,7 +8,7 @@ export interface AppConfig {
   mediaDir: string;
   dataDir: string;
   cacheVideosDir: string;
-  cacheThumbsDir: string;
+  cacheImagesDir: string;
   dbPath: string;
   sessionPath: string;
   requestSpecPath: string;
@@ -44,6 +44,7 @@ const DEFAULT_MEDIA_DIR = path.join(ROOT, "media");
 const ALLOWED_FEED_SORTS: FeedSort[] = ["Most Reactions", "Most Comments", "Most Collected", "Newest", "Oldest"];
 const ALLOWED_FEED_PERIODS: FeedPeriod[] = ["Day", "Week", "Month", "Year", "AllTime"];
 const ALLOWED_OFFLINE_FEED_ORDERS: OfflineFeedOrder[] = ["Newest", "Oldest", "Random"];
+const ALLOWED_FEED_MODES: FeedMode[] = ["online", "offline_video", "offline_image"];
 
 export const defaultConfig: AppConfig = {
   host: "0.0.0.0",
@@ -51,7 +52,7 @@ export const defaultConfig: AppConfig = {
   mediaDir: DEFAULT_MEDIA_DIR,
   dataDir: DEFAULT_DATA_DIR,
   cacheVideosDir: path.join(DEFAULT_DATA_DIR, "cache", "videos"),
-  cacheThumbsDir: path.join(DEFAULT_DATA_DIR, "cache", "thumbs"),
+  cacheImagesDir: path.join(DEFAULT_DATA_DIR, "cache", "images"),
   dbPath: path.join(DEFAULT_DATA_DIR, "slopscroll.db"),
   sessionPath: path.join(DEFAULT_DATA_DIR, "session", "auth.json"),
   requestSpecPath: path.join(DEFAULT_DATA_DIR, "civitai-request-spec.json"),
@@ -70,7 +71,7 @@ export const defaultConfig: AppConfig = {
     browsingLevelXXX: true,
     feedSort: "Newest",
     feedPeriod: "Week",
-    offlineModeEnabled: false,
+    feedMode: "online",
     offlineFeedOrder: "Newest"
   },
   civitai: {
@@ -134,9 +135,26 @@ function toOfflineFeedOrder(value: string | undefined, fallback: OfflineFeedOrde
   return match ?? fallback;
 }
 
+function toFeedMode(value: string | undefined, fallback: FeedMode): FeedMode {
+  if (!value) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  const match = ALLOWED_FEED_MODES.find((candidate) => candidate.toLowerCase() === normalized);
+  return match ?? fallback;
+}
+
 export function loadConfig(): AppConfig {
   const localPath = path.join(ROOT, "config", "local.json");
   const localConfig = readJsonFile<PartialConfig>(localPath) ?? {};
+  const legacyLocalOfflineEnabledRaw = (localConfig.settings as { offlineModeEnabled?: unknown } | undefined)?.offlineModeEnabled;
+  const legacyLocalOfflineEnabled =
+    typeof legacyLocalOfflineEnabledRaw === "boolean"
+      ? legacyLocalOfflineEnabledRaw
+      : String(legacyLocalOfflineEnabledRaw ?? "").toLowerCase() === "true";
+  const legacyEnvOfflineEnabledRaw = process.env.SLOPSCROLL_OFFLINE_MODE_ENABLED;
+  const legacyEnvOfflineEnabled = legacyEnvOfflineEnabledRaw != null && legacyEnvOfflineEnabledRaw.toLowerCase() === "true";
+  const inferredLegacyFeedMode = legacyEnvOfflineEnabled || legacyLocalOfflineEnabled ? "offline_video" : "online";
 
   const host = process.env.SLOPSCROLL_HOST ?? localConfig.host ?? defaultConfig.host;
   const port = toInt(process.env.SLOPSCROLL_PORT, localConfig.port ?? defaultConfig.port);
@@ -184,11 +202,10 @@ export function loadConfig(): AppConfig {
       ).toLowerCase() === "true",
     feedSort: toFeedSort(process.env.SLOPSCROLL_FEED_SORT, localConfig.settings?.feedSort ?? defaultConfig.settings.feedSort),
     feedPeriod: toFeedPeriod(process.env.SLOPSCROLL_FEED_PERIOD, localConfig.settings?.feedPeriod ?? defaultConfig.settings.feedPeriod),
-    offlineModeEnabled:
-      (
-        process.env.SLOPSCROLL_OFFLINE_MODE_ENABLED ??
-        String(localConfig.settings?.offlineModeEnabled ?? defaultConfig.settings.offlineModeEnabled)
-      ).toLowerCase() === "true",
+    feedMode: toFeedMode(
+      process.env.SLOPSCROLL_FEED_MODE,
+      localConfig.settings?.feedMode ?? (inferredLegacyFeedMode as FeedMode)
+    ),
     offlineFeedOrder: toOfflineFeedOrder(
       process.env.SLOPSCROLL_OFFLINE_FEED_ORDER,
       localConfig.settings?.offlineFeedOrder ?? defaultConfig.settings.offlineFeedOrder
@@ -212,7 +229,7 @@ export function loadConfig(): AppConfig {
     mediaDir,
     dataDir,
     cacheVideosDir: path.join(dataDir, "cache", "videos"),
-    cacheThumbsDir: path.join(dataDir, "cache", "thumbs"),
+    cacheImagesDir: path.join(dataDir, "cache", "images"),
     dbPath: path.join(dataDir, "slopscroll.db"),
     sessionPath: path.join(dataDir, "session", "auth.json"),
     requestSpecPath: path.join(dataDir, "civitai-request-spec.json"),
