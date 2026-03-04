@@ -6,6 +6,8 @@ import type { CivitaiRequestSpec, FeedMode, FeedPeriod, FeedSort, OfflineFeedOrd
 export interface AppConfig {
   appVersion: string;
   appCommit: string;
+  appCommitBuild: string;
+  appCommitLocal: string;
   host: string;
   port: number;
   soundsDir: string;
@@ -37,6 +39,10 @@ const ALLOWED_FEED_MODES: FeedMode[] = ["online", "offline_video", "offline_imag
 function normalizeCommitSha(value: string | undefined): string | null {
   const normalized = String(value ?? "").trim();
   if (!normalized) {
+    return null;
+  }
+  const lower = normalized.toLowerCase();
+  if (lower === "unknown" || lower === "unset" || lower === "none" || lower === "null") {
     return null;
   }
   const hex = normalized.match(/^[0-9a-f]{7,40}$/i);
@@ -84,6 +90,8 @@ function readPackageVersion(rootDir: string): string {
 export const defaultConfig: AppConfig = {
   appVersion: readPackageVersion(ROOT),
   appCommit: "unknown",
+  appCommitBuild: "unknown",
+  appCommitLocal: "unknown",
   host: "0.0.0.0",
   port: 3579,
   soundsDir: DEFAULT_SOUNDS_DIR,
@@ -188,7 +196,9 @@ export function loadConfig(): AppConfig {
   const legacyEnvOfflineEnabled = legacyEnvOfflineEnabledRaw != null && legacyEnvOfflineEnabledRaw.toLowerCase() === "true";
   const inferredLegacyFeedMode = legacyEnvOfflineEnabled ? "offline_video" : "online";
   const appVersion = readPackageVersion(ROOT);
-  const appCommit = resolveGitCommit(ROOT);
+  const appCommitBuild = normalizeCommitSha(process.env.APP_COMMIT) ?? "unknown";
+  const appCommitLocal = resolveGitCommit(ROOT);
+  const appCommit = appCommitBuild !== "unknown" ? appCommitBuild : appCommitLocal;
 
   const host = process.env.APP_HOST ?? defaultConfig.host;
   const port = toInt(process.env.APP_PORT, defaultConfig.port);
@@ -235,6 +245,8 @@ export function loadConfig(): AppConfig {
   return {
     appVersion,
     appCommit,
+    appCommitBuild,
+    appCommitLocal,
     host,
     port,
     soundsDir,

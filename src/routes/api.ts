@@ -117,7 +117,9 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
   app.get("/api/app/info", async () => ({
     ok: true,
     version: deps.config.appVersion,
-    commit: deps.config.appCommit
+    commit: deps.config.appCommit,
+    commitBuild: deps.config.appCommitBuild,
+    commitLocal: deps.config.appCommitLocal
   }));
 
   app.post<{ Body: { cookies?: string } }>("/api/auth/cookies", async (req, reply) => {

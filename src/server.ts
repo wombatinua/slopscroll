@@ -82,6 +82,8 @@ async function bootstrap(): Promise<void> {
   logger.info("startup", {
     appVersion: config.appVersion,
     appCommit: config.appCommit,
+    appCommitBuild: config.appCommitBuild,
+    appCommitLocal: config.appCommitLocal,
     port: config.port,
     host: config.host,
     staticDir: config.staticDir,

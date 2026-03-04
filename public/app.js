@@ -1061,7 +1061,16 @@
       const result = await api("/api/app/info");
       const version = String(result?.version ?? "").trim() || "0.0.0";
       const commit = String(result?.commit ?? "").trim() || "unknown";
-      refs.appVersionLabel.textContent = `SlopScroll ${version} (${commit})`;
+      const commitBuild = String(result?.commitBuild ?? "").trim() || "unknown";
+      const commitLocal = String(result?.commitLocal ?? "").trim() || "unknown";
+      const hasBuild = commitBuild !== "unknown";
+      const hasLocal = commitLocal !== "unknown";
+      if (hasBuild && hasLocal && commitBuild !== commitLocal) {
+        refs.appVersionLabel.textContent = `SlopScroll ${version} (gh:${commitBuild} local:${commitLocal})`;
+        return;
+      }
+      const effectiveCommit = commit !== "unknown" ? commit : hasLocal ? commitLocal : commitBuild;
+      refs.appVersionLabel.textContent = `SlopScroll ${version} (${effectiveCommit || "unknown"})`;
     } catch {
       refs.appVersionLabel.textContent = "SlopScroll";
     }
