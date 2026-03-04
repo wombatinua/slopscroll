@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import type { AppConfig } from "../config";
 import { AppDb } from "../db";
 import { logger } from "../logger";
@@ -492,8 +493,9 @@ export class FeedService {
     if (!localPath) {
       return false;
     }
+    const resolvedPath = path.join(this.config.cacheVideosDir, path.basename(localPath.trim().replace(/\\/g, "/")));
     try {
-      const stat = fs.statSync(localPath);
+      const stat = fs.statSync(resolvedPath);
       return stat.isFile() && stat.size > 0;
     } catch {
       return false;

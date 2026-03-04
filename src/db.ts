@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import path from "node:path";
 import { ensureParentDir } from "./utils/fs";
 import type { CacheEntry, FeedMode, FeedPeriod, FeedSort, OfflineFeedOrder, Settings, VideoRecord } from "./types";
 
@@ -55,6 +56,11 @@ function normalizeFeedMode(value: string | undefined, fallback: FeedMode): FeedM
   const normalized = value.trim().toLowerCase();
   const match = FEED_MODE_VALUES.find((candidate) => candidate.toLowerCase() === normalized);
   return match ?? fallback;
+}
+
+function normalizeCacheLocalPath(value: string): string {
+  const normalized = value.trim().replace(/\\/g, "/");
+  return path.basename(normalized);
 }
 
 export class AppDb {
@@ -411,6 +417,47 @@ export class AppDb {
     };
   }
 
+  normalizeCacheLocalPathsToFileNames(): { checked: number; updated: number } {
+    const rows = this.db
+      .prepare(
+        `
+        SELECT video_id, local_path
+        FROM cache_entries
+      `
+      )
+      .all() as Array<{ video_id: string; local_path: string }>;
+    if (rows.length === 0) {
+      return { checked: 0, updated: 0 };
+    }
+
+    const update = this.db.prepare(`
+      UPDATE cache_entries
+      SET local_path = ?
+      WHERE video_id = ?
+    `);
+
+    let updated = 0;
+    for (const row of rows) {
+      const currentPath = row.local_path.trim();
+      const fileName = normalizeCacheLocalPath(currentPath);
+      if (!fileName) {
+        continue;
+      }
+
+      if (currentPath === fileName) {
+        continue;
+      }
+
+      update.run(fileName, row.video_id);
+      updated += 1;
+    }
+
+    return {
+      checked: rows.length,
+      updated
+    };
+  }
+
   listOfflineFeedRows(options: {
     offset: number;
     limit: number;
@@ -634,6 +681,10 @@ export class AppDb {
     fileSize?: number;
     failureReason?: string;
   }): void {
+    const normalizedLocalPath = normalizeCacheLocalPath(entry.localPath);
+    if (!normalizedLocalPath) {
+      throw new Error("localPath must include a file name");
+    }
     this.db
       .prepare(`
         INSERT INTO cache_entries (video_id, local_path, status, file_size, failure_reason)
@@ -650,7 +701,7 @@ export class AppDb {
       `)
       .run({
         videoId: entry.videoId,
-        localPath: entry.localPath,
+        localPath: normalizedLocalPath,
         status: entry.status,
         fileSize: entry.fileSize ?? 0,
         failureReason: entry.failureReason ?? null
@@ -884,5 +935,9 @@ export class AppDb {
       this.db.exec("ROLLBACK;");
       throw error;
     }
+
+    // Truncate WAL and compact DB file so flush is reflected on disk immediately.
+    this.db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+    this.db.exec("VACUUM;");
   }
 }

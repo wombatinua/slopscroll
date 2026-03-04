@@ -269,7 +269,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
           continue;
         }
         const entry = deps.db.getCacheEntry(videoId);
-        if (entry?.status === "ready" && fs.existsSync(entry.localPath)) {
+        if (entry?.status === "ready" && deps.cacheService.hasStoredCacheFile(entry.localPath)) {
           queued.push(videoId);
         } else {
           skipped.push(videoId);
@@ -299,7 +299,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
 
     if (isOfflineVideoMode()) {
       const entry = deps.db.getCacheEntry(req.params.id);
-      if (!entry || entry.status !== "ready" || !fs.existsSync(entry.localPath)) {
+      if (!entry || entry.status !== "ready" || !deps.cacheService.hasStoredCacheFile(entry.localPath)) {
         return offlineUnavailable(reply, "Offline mode enabled: requested video is not available in ready local cache");
       }
       try {

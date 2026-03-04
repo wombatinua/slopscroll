@@ -25,6 +25,10 @@ async function bootstrap(): Promise<void> {
   ensureDir(path.dirname(config.sessionPath));
 
   const db = new AppDb(config.dbPath);
+  const cachePathReconcile = db.normalizeCacheLocalPathsToFileNames();
+  if (cachePathReconcile.updated > 0) {
+    logger.info("startup.cache_paths_normalized", cachePathReconcile);
+  }
   const settings = db.getSettings(config.settings);
   db.setSettings(settings);
   config.settings = settings;

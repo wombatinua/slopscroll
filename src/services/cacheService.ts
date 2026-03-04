@@ -92,13 +92,24 @@ export class CacheService {
   }
 
   async streamCachedFile(localPath: string, reply: FastifyReply): Promise<FastifyReply> {
-    const stat = await fs.promises.stat(localPath);
-    const mime = await this.detectVideoMime(localPath);
+    const resolvedPath = this.resolveStoredCachePath(localPath);
+    const stat = await fs.promises.stat(resolvedPath);
+    const mime = await this.detectVideoMime(resolvedPath);
 
     reply.header("Content-Type", mime);
     reply.header("Content-Length", String(stat.size));
     reply.header("Cache-Control", "public, max-age=31536000, immutable");
-    return reply.send(fs.createReadStream(localPath));
+    return reply.send(fs.createReadStream(resolvedPath));
+  }
+
+  hasStoredCacheFile(localPath: string): boolean {
+    const resolvedPath = this.resolveStoredCachePath(localPath);
+    try {
+      const stat = fs.statSync(resolvedPath);
+      return stat.isFile() && stat.size > 0;
+    } catch {
+      return false;
+    }
   }
 
   async getDiskHealth(): Promise<{ freeBytes: number | null; lowDisk: boolean }> {
@@ -128,7 +139,7 @@ export class CacheService {
     this.queuedPrefetchIds.clear();
 
     const before = this.db.getCacheStats();
-    await fs.promises.rm(this.config.cacheVideosDir, { recursive: true, force: true });
+    await this.clearDirectoryContents(this.config.cacheVideosDir);
     ensureDir(this.config.cacheVideosDir);
     this.db.resetCacheIndex();
 
@@ -144,8 +155,9 @@ export class CacheService {
   }
 
   private async verifyReadyEntry(entry: CacheEntry): Promise<boolean> {
+    const resolvedPath = this.resolveStoredCachePath(entry.localPath);
     try {
-      const stat = await fs.promises.stat(entry.localPath);
+      const stat = await fs.promises.stat(resolvedPath);
       if (stat.size <= 0) {
         return false;
       }
@@ -156,8 +168,9 @@ export class CacheService {
   }
 
   private async downloadAndStore(video: VideoRecord): Promise<CacheEntry> {
-    const localPath = path.join(this.config.cacheVideosDir, `${normalizeFileName(video.id)}.webm`);
-    const tmpPath = `${localPath}.part`;
+    const localPath = `${normalizeFileName(video.id)}.webm`;
+    const resolvedPath = this.resolveStoredCachePath(localPath);
+    const tmpPath = `${resolvedPath}.part`;
 
     this.db.upsertCacheEntry({
       videoId: video.id,
@@ -219,7 +232,7 @@ export class CacheService {
           throw new Error("Media response has empty body");
         }
 
-        await fs.promises.mkdir(path.dirname(localPath), { recursive: true });
+        await fs.promises.mkdir(path.dirname(resolvedPath), { recursive: true });
 
         const readable = Readable.fromWeb(response.body as unknown as NodeReadableStream);
         const writable = fs.createWriteStream(tmpPath, { flags: "w" });
@@ -230,7 +243,7 @@ export class CacheService {
           throw new Error("Downloaded file is empty");
         }
 
-        await fs.promises.rename(tmpPath, localPath);
+        await fs.promises.rename(tmpPath, resolvedPath);
 
         this.db.upsertCacheEntry({
           videoId: video.id,
@@ -385,6 +398,24 @@ export class CacheService {
     }
   }
 
+  private async clearDirectoryContents(dirPath: string): Promise<void> {
+    try {
+      const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.name === ".gitkeep") {
+          continue;
+        }
+        const targetPath = path.join(dirPath, entry.name);
+        await fs.promises.rm(targetPath, { recursive: true, force: true });
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return;
+      }
+      throw error;
+    }
+  }
+
   private async sleep(ms: number): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, ms));
   }
@@ -511,6 +542,14 @@ export class CacheService {
     } finally {
       await fh.close();
     }
+  }
+
+  private resolveStoredCachePath(localPath: string): string {
+    const normalized = path.basename(localPath.trim().replace(/\\/g, "/"));
+    if (!normalized) {
+      throw new Error("Invalid cached localPath");
+    }
+    return path.join(this.config.cacheVideosDir, normalized);
   }
 }
 
