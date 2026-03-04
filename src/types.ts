@@ -39,6 +39,8 @@ export interface Settings {
   prefetchDepth: number;
   lowDiskWarnGb: number;
   audioEnabled: boolean;
+  audioAutoSwitchEnabled: boolean;
+  audioSwitchOnVideoChangeEnabled: boolean;
   audioMinSwitchSec: number;
   audioMaxSwitchSec: number;
   audioCrossfadeSec: number;

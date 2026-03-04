@@ -59,6 +59,8 @@ export const defaultConfig: AppConfig = {
     prefetchDepth: 3,
     lowDiskWarnGb: 2,
     audioEnabled: false,
+    audioAutoSwitchEnabled: true,
+    audioSwitchOnVideoChangeEnabled: true,
     audioMinSwitchSec: 15,
     audioMaxSwitchSec: 45,
     audioCrossfadeSec: 2,
@@ -135,6 +137,16 @@ export function loadConfig(): AppConfig {
     audioEnabled:
       (process.env.SLOPSCROLL_AUDIO_ENABLED ?? String(localConfig.settings?.audioEnabled ?? defaultConfig.settings.audioEnabled)).toLowerCase() ===
       "true",
+    audioAutoSwitchEnabled:
+      (
+        process.env.SLOPSCROLL_AUDIO_AUTO_SWITCH_ENABLED ??
+        String(localConfig.settings?.audioAutoSwitchEnabled ?? defaultConfig.settings.audioAutoSwitchEnabled)
+      ).toLowerCase() === "true",
+    audioSwitchOnVideoChangeEnabled:
+      (
+        process.env.SLOPSCROLL_AUDIO_SWITCH_ON_VIDEO_CHANGE_ENABLED ??
+        String(localConfig.settings?.audioSwitchOnVideoChangeEnabled ?? defaultConfig.settings.audioSwitchOnVideoChangeEnabled)
+      ).toLowerCase() === "true",
     audioMinSwitchSec: toInt(
       process.env.SLOPSCROLL_AUDIO_MIN_SWITCH_SEC,
       localConfig.settings?.audioMinSwitchSec ?? defaultConfig.settings.audioMinSwitchSec

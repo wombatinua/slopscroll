@@ -145,6 +145,32 @@ button:hover {
   white-space: nowrap;
 }
 
+.feed-nav-label {
+  color: var(--accent);
+  font-size: 12px;
+  line-height: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feed-nav-back {
+  margin-right: 6px;
+  display: inline-grid;
+  place-items: center;
+}
+
+.nav-back-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.nav-back-icon path {
+  fill: currentColor;
+}
+
 .feed-nav-btn:hover {
   transform: none;
   background: transparent;
@@ -758,6 +784,58 @@ label {
   margin-top: 0;
 }
 
+.feed-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 28;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at center, rgba(8, 14, 18, 0.24), rgba(8, 14, 18, 0.58)),
+    linear-gradient(180deg, rgba(9, 12, 16, 0.24), rgba(9, 12, 16, 0.46));
+}
+
+.feed-loading-inner {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border: 1px solid rgba(236, 157, 197, 0.32);
+  border-radius: 14px;
+  background: rgba(18, 24, 29, 0.78);
+  backdrop-filter: blur(6px);
+}
+
+.feed-loading-icon {
+  width: 44px;
+  height: 44px;
+  color: var(--accent);
+  animation: feed-spinner-rotate 0.9s linear infinite;
+}
+
+.feed-loading-icon circle {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-dasharray: 88;
+  stroke-dashoffset: 22;
+}
+
+.feed-loading-label {
+  font-size: 12px;
+  letter-spacing: 0.03em;
+  color: #ffd9eb;
+}
+
+@keyframes feed-spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .toast {
   position: fixed;
   left: 50%;
@@ -882,6 +960,10 @@ label {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .feed-nav-label {
+    max-width: 44vw;
   }
 
   .icon-btn {

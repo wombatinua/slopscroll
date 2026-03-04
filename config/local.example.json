@@ -7,6 +7,8 @@
     "prefetchDepth": 3,
     "lowDiskWarnGb": 2,
     "audioEnabled": false,
+    "audioAutoSwitchEnabled": true,
+    "audioSwitchOnVideoChangeEnabled": true,
     "audioMinSwitchSec": 15,
     "audioMaxSwitchSec": 45,
     "audioCrossfadeSec": 2,

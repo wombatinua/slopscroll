@@ -269,6 +269,8 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
       prefetchDepth?: number;
       lowDiskWarnGb?: number;
       audioEnabled?: boolean;
+      audioAutoSwitchEnabled?: boolean;
+      audioSwitchOnVideoChangeEnabled?: boolean;
       audioMinSwitchSec?: number;
       audioMaxSwitchSec?: number;
       audioCrossfadeSec?: number;
@@ -293,6 +295,10 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
       prefetchDepth: clamp(Number(req.body?.prefetchDepth ?? existing.prefetchDepth), 0, 10),
       lowDiskWarnGb: Math.max(0, Number(req.body?.lowDiskWarnGb ?? existing.lowDiskWarnGb)),
       audioEnabled: Boolean(req.body?.audioEnabled ?? existing.audioEnabled),
+      audioAutoSwitchEnabled: Boolean(req.body?.audioAutoSwitchEnabled ?? existing.audioAutoSwitchEnabled),
+      audioSwitchOnVideoChangeEnabled: Boolean(
+        req.body?.audioSwitchOnVideoChangeEnabled ?? existing.audioSwitchOnVideoChangeEnabled
+      ),
       audioMinSwitchSec: normalizedAudioMin,
       audioMaxSwitchSec: normalizedAudioMax,
       audioCrossfadeSec: normalizedAudioCrossfade,

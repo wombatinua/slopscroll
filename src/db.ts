@@ -528,7 +528,7 @@ export class AppDb {
   getSettings(defaults: Settings): Settings {
     const rows = this.db
       .prepare(
-        `SELECT key, value FROM settings WHERE key IN ('prefetchDepth', 'lowDiskWarnGb', 'audioEnabled', 'audioMinSwitchSec', 'audioMaxSwitchSec', 'audioCrossfadeSec', 'browsingLevelR', 'browsingLevelX', 'browsingLevelXXX', 'feedSort', 'feedPeriod')`
+        `SELECT key, value FROM settings WHERE key IN ('prefetchDepth', 'lowDiskWarnGb', 'audioEnabled', 'audioAutoSwitchEnabled', 'audioSwitchOnVideoChangeEnabled', 'audioMinSwitchSec', 'audioMaxSwitchSec', 'audioCrossfadeSec', 'browsingLevelR', 'browsingLevelX', 'browsingLevelXXX', 'feedSort', 'feedPeriod')`
       )
       .all() as Array<{ key: string; value: string }>;
 
@@ -548,6 +548,12 @@ export class AppDb {
       }
       if (row.key === "audioEnabled") {
         output.audioEnabled = row.value.toLowerCase() === "true";
+      }
+      if (row.key === "audioAutoSwitchEnabled") {
+        output.audioAutoSwitchEnabled = row.value.toLowerCase() === "true";
+      }
+      if (row.key === "audioSwitchOnVideoChangeEnabled") {
+        output.audioSwitchOnVideoChangeEnabled = row.value.toLowerCase() === "true";
       }
       if (row.key === "audioMinSwitchSec") {
         const parsed = Number.parseInt(row.value, 10);
@@ -599,6 +605,8 @@ export class AppDb {
       ["prefetchDepth", String(settings.prefetchDepth)],
       ["lowDiskWarnGb", String(settings.lowDiskWarnGb)],
       ["audioEnabled", String(settings.audioEnabled)],
+      ["audioAutoSwitchEnabled", String(settings.audioAutoSwitchEnabled)],
+      ["audioSwitchOnVideoChangeEnabled", String(settings.audioSwitchOnVideoChangeEnabled)],
       ["audioMinSwitchSec", String(settings.audioMinSwitchSec)],
       ["audioMaxSwitchSec", String(settings.audioMaxSwitchSec)],
       ["audioCrossfadeSec", String(settings.audioCrossfadeSec)],

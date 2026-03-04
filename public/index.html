@@ -16,8 +16,12 @@
             SlopScroll
           </button>
           <nav id="feed-nav" class="feed-nav hidden" aria-label="Feed navigation">
-            <span id="nav-separator" class="feed-nav-sep hidden">›</span>
-            <button id="nav-author" type="button" class="feed-nav-btn hidden">Author Feed</button>
+            <button id="nav-back-main" type="button" class="feed-nav-btn feed-nav-back hidden" aria-label="Back to main feed" title="Back to main feed">
+              <svg class="nav-back-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M20 11H7.83l4.88-4.88a1 1 0 0 0-1.41-1.41l-6.59 6.59a1 1 0 0 0 0 1.41l6.59 6.59a1 1 0 1 0 1.41-1.41L7.83 13H20a1 1 0 1 0 0-2Z"></path>
+              </svg>
+            </button>
+            <span id="nav-author" class="feed-nav-label hidden">(@author)</span>
             <button
               id="btn-like-author"
               type="button"
@@ -91,6 +95,15 @@
       </div>
     </header>
 
+    <div id="overlay-feed-loading" class="feed-loading-overlay" aria-live="polite">
+      <div class="feed-loading-inner">
+        <svg class="feed-loading-icon" viewBox="0 0 48 48" aria-hidden="true">
+          <circle cx="24" cy="24" r="18"></circle>
+        </svg>
+        <span class="feed-loading-label">Loading feed...</span>
+      </div>
+    </div>
+
     <div id="settings-backdrop" class="settings-backdrop hidden"></div>
 
     <aside id="settings-panel" class="control-panel" aria-hidden="true">
@@ -145,6 +158,14 @@
           <input id="audio-enabled" type="checkbox" />
           Enable background loop playback
         </label>
+        <label class="toggle-inline" for="audio-auto-switch-enabled">
+          <input id="audio-auto-switch-enabled" type="checkbox" />
+          Enable automatic random loop switching
+        </label>
+        <label class="toggle-inline" for="audio-switch-on-video-change-enabled">
+          <input id="audio-switch-on-video-change-enabled" type="checkbox" />
+          Switch loop on video change
+        </label>
         <label for="audio-min-switch-sec">Random switch min seconds</label>
         <input id="audio-min-switch-sec" type="number" min="1" max="3600" value="15" />
         <label for="audio-max-switch-sec">Random switch max seconds</label>
@@ -155,7 +176,6 @@
           <button id="btn-refresh-audio-library" type="button">Refresh Audio Library</button>
         </div>
         <p id="audio-library-status" class="muted-note">Audio library: loading...</p>
-        <button id="btn-save-settings" type="button">Save Settings</button>
       </section>
 
       <section>
