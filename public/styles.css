@@ -869,6 +869,119 @@ label {
   margin-top: 0;
 }
 
+.panic-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+  display: grid;
+  justify-items: center;
+  align-items: start;
+  background: rgb(60, 60, 60);
+}
+
+.panic-google-shell {
+  --panic-logo-width: min(272px, 56vw);
+  --panic-logo-height: calc(var(--panic-logo-width) * 92 / 272);
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 44px;
+  min-height: 100dvh;
+  padding: var(--panic-logo-height) 10px 0;
+}
+
+.panic-google-logo {
+  width: var(--panic-logo-width);
+  height: auto;
+  display: block;
+  color: #f1f3f4;
+  user-select: none;
+}
+
+.panic-search-form {
+  width: min(604px, calc(100vw - 72px));
+  display: grid;
+  justify-items: center;
+}
+
+.panic-search-row {
+  width: 100%;
+  height: 48px;
+  border-radius: 999px;
+  border: 1px solid rgba(218, 220, 224, 0.9);
+  background: #f1f3f4;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 18px;
+}
+
+.panic-search-input {
+  flex: 1 1 auto;
+  min-width: 120px;
+  border: none;
+  background: transparent;
+  color: #202124;
+  font-size: 16px;
+  line-height: 1.25;
+  font-weight: 500;
+  outline: none;
+  padding: 0;
+}
+
+.panic-search-input::placeholder {
+  color: #5f6368;
+  font-weight: 500;
+}
+
+.panic-search-icon {
+  width: 18px;
+  height: 18px;
+  color: #5f6368;
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+}
+
+.panic-search-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (max-width: 680px) {
+  .panic-google-shell {
+    --panic-logo-width: min(248px, 64vw);
+    --panic-logo-height: calc(var(--panic-logo-width) * 92 / 272);
+    gap: 34px;
+    min-height: 100dvh;
+    padding: var(--panic-logo-height) 6px 0;
+  }
+
+  .panic-google-logo {
+    width: var(--panic-logo-width);
+  }
+
+  .panic-search-form {
+    width: calc(100vw - 32px);
+  }
+
+  .panic-search-row {
+    height: 46px;
+    padding: 0 14px;
+    gap: 8px;
+  }
+
+  .panic-search-input {
+    font-size: 16px;
+  }
+}
+
 .feed-loading-overlay {
   position: fixed;
   inset: 0;

@@ -26,6 +26,9 @@
     audioMinSwitchSec: 15,
     audioMaxSwitchSec: 45,
     audioCrossfadeSec: 2,
+    audioPlaybackRate: 1,
+    panicShortcutEnabled: false,
+    panicActive: false,
     browsingLevelR: false,
     browsingLevelX: true,
     browsingLevelXXX: true,
@@ -46,6 +49,7 @@
     audioPendingSwitchRequested: false,
     audioPendingSwitchPreferDifferent: false,
     audioAutoplayBlocked: false,
+    audioDisabledByPanic: false,
     videoReloadSeq: 0,
     selectedAuthor: null,
     selectedAuthorTotal: null,
@@ -73,6 +77,8 @@
     audioMinSwitchSec: document.getElementById("audio-min-switch-sec"),
     audioMaxSwitchSec: document.getElementById("audio-max-switch-sec"),
     audioCrossfadeSec: document.getElementById("audio-crossfade-sec"),
+    audioPlaybackRate: document.getElementById("audio-playback-rate"),
+    panicShortcutEnabled: document.getElementById("panic-shortcut-enabled"),
     browsingLevelR: document.getElementById("browsing-level-r"),
     browsingLevelX: document.getElementById("browsing-level-x"),
     browsingLevelXXX: document.getElementById("browsing-level-xxx"),
@@ -115,7 +121,10 @@
     fixedMetaSub: document.getElementById("fixed-meta-sub"),
     overlayOfflineEmpty: document.getElementById("overlay-offline-empty"),
     offlineEmptyTitle: document.getElementById("offline-empty-title"),
-    offlineEmptySubtitle: document.getElementById("offline-empty-subtitle")
+    offlineEmptySubtitle: document.getElementById("offline-empty-subtitle"),
+    overlayPanic: document.getElementById("overlay-panic"),
+    panicSearchForm: document.getElementById("panic-search-form"),
+    panicSearchInput: document.getElementById("panic-search-input")
   };
 
   const observer = new IntersectionObserver(onIntersect, {
@@ -127,6 +136,15 @@
   const OFFLINE_FEED_ORDER_OPTIONS = ["Newest", "Oldest", "Random"];
   const VIDEO_KEEP_BEHIND = 10;
   const VIDEO_KEEP_AHEAD = 2;
+  const AUDIO_PITCH_SHIFT_STEPS = [
+    ...Array.from({ length: 10 }, (_value, index) => 10 - index),
+    0,
+    ...Array.from({ length: 10 }, (_value, index) => -(index + 1))
+  ];
+  const AUDIO_PLAYBACK_RATE_OPTIONS = AUDIO_PITCH_SHIFT_STEPS.map((step) => ({
+    step,
+    rate: Math.round(Math.pow(2, step / 12) * 10000) / 10000
+  }));
 
   async function api(path, options) {
     const method = (options?.method || "GET").toUpperCase();
@@ -222,6 +240,33 @@
     return String(author || "")
       .trim()
       .toLowerCase();
+  }
+
+  function isEditableTarget(target) {
+    if (!(target instanceof HTMLElement)) {
+      return false;
+    }
+    const tag = target.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
+      return true;
+    }
+    if (target.isContentEditable) {
+      return true;
+    }
+    return Boolean(target.closest("[contenteditable='true']"));
+  }
+
+  function buildGoogleSearchUrl(queryRaw, lucky = false) {
+    const query = String(queryRaw || "").trim();
+    if (!query) {
+      return "https://www.google.com/";
+    }
+    const url = new URL("https://www.google.com/search");
+    url.searchParams.set("q", query);
+    if (lucky) {
+      url.searchParams.set("btnI", "I");
+    }
+    return url.toString();
   }
 
   function normalizeFeedSort(value, fallback = "Newest") {
@@ -914,11 +959,16 @@
     const parsedPrefetchDepth = Number.parseInt(String(settings.prefetchDepth), 10);
     state.prefetchDepth = Number.isFinite(parsedPrefetchDepth) ? Math.max(0, Math.min(10, parsedPrefetchDepth)) : 3;
     state.audioEnabled = Boolean(settings.audioEnabled);
+    if (state.audioDisabledByPanic) {
+      state.audioEnabled = false;
+    }
     state.audioAutoSwitchEnabled = settings.audioAutoSwitchEnabled !== false;
     state.audioSwitchOnVideoChangeEnabled = settings.audioSwitchOnVideoChangeEnabled !== false;
     state.audioMinSwitchSec = normalizeAudioSwitchSec(settings.audioMinSwitchSec, 15);
     state.audioMaxSwitchSec = normalizeAudioSwitchSec(settings.audioMaxSwitchSec, 45);
     state.audioCrossfadeSec = normalizeAudioCrossfadeSec(settings.audioCrossfadeSec, 2);
+    state.audioPlaybackRate = normalizeAudioPlaybackRate(settings.audioPlaybackRate, 1);
+    state.panicShortcutEnabled = Boolean(settings.panicShortcutEnabled);
     state.browsingLevelR = Boolean(settings.browsingLevelR);
     state.browsingLevelX = Boolean(settings.browsingLevelX);
     state.browsingLevelXXX = Boolean(settings.browsingLevelXXX);
@@ -941,11 +991,15 @@
     refs.audioMinSwitchSec.value = String(state.audioMinSwitchSec);
     refs.audioMaxSwitchSec.value = String(state.audioMaxSwitchSec);
     refs.audioCrossfadeSec.value = String(state.audioCrossfadeSec);
+    refs.audioPlaybackRate.value = String(state.audioPlaybackRate);
+    refs.panicShortcutEnabled.checked = state.panicShortcutEnabled;
     refs.feedMode.value = state.feedMode;
     refs.browsingLevelR.checked = state.browsingLevelR;
     refs.browsingLevelX.checked = state.browsingLevelX;
     refs.browsingLevelXXX.checked = state.browsingLevelXXX;
     syncAudioControls();
+    syncSafetyControls();
+    applyAudioPlaybackRateToPlayers();
     syncSortControl();
     syncPeriodControl();
     syncOfflineBadge();
@@ -1064,6 +1118,23 @@
     }
   }
 
+  function formatPitchShiftLabel(step) {
+    if (step === 0) {
+      return "0 (Normal)";
+    }
+    return step > 0 ? `+${step}` : String(step);
+  }
+
+  function populateAudioPlaybackRateOptions() {
+    refs.audioPlaybackRate.innerHTML = "";
+    for (const optionConfig of AUDIO_PLAYBACK_RATE_OPTIONS) {
+      const option = document.createElement("option");
+      option.value = String(optionConfig.rate);
+      option.textContent = formatPitchShiftLabel(optionConfig.step);
+      refs.audioPlaybackRate.appendChild(option);
+    }
+  }
+
   function normalizeAutoAdvanceSeconds(value) {
     const parsed = Number.parseInt(String(value), 10);
     if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 20) {
@@ -1099,6 +1170,22 @@
     return fallback;
   }
 
+  function normalizeAudioPlaybackRate(value, fallback) {
+    const parsed = Number.parseFloat(String(value));
+    const fallbackValue = Number.parseFloat(String(fallback));
+    const source = Number.isFinite(parsed) ? parsed : Number.isFinite(fallbackValue) ? fallbackValue : 1;
+    let nearest = AUDIO_PLAYBACK_RATE_OPTIONS[0].rate;
+    let nearestDistance = Math.abs(source - nearest);
+    for (const candidate of AUDIO_PLAYBACK_RATE_OPTIONS) {
+      const distance = Math.abs(source - candidate.rate);
+      if (distance < nearestDistance) {
+        nearest = candidate.rate;
+        nearestDistance = distance;
+      }
+    }
+    return nearest;
+  }
+
   function syncAudioControls() {
     refs.audioEnabled.checked = state.audioEnabled;
     refs.audioAutoSwitchEnabled.checked = state.audioAutoSwitchEnabled;
@@ -1106,6 +1193,7 @@
     refs.audioMinSwitchSec.value = String(state.audioMinSwitchSec);
     refs.audioMaxSwitchSec.value = String(state.audioMaxSwitchSec);
     refs.audioCrossfadeSec.value = String(state.audioCrossfadeSec);
+    refs.audioPlaybackRate.value = String(state.audioPlaybackRate);
     refs.audioMinSwitchSec.disabled = !state.audioAutoSwitchEnabled;
     refs.audioMaxSwitchSec.disabled = !state.audioAutoSwitchEnabled;
     refs.browsingLevelR.checked = state.browsingLevelR;
@@ -1114,6 +1202,10 @@
     refs.btnToggleAudio.classList.toggle("active", state.audioEnabled);
     refs.btnToggleAudio.setAttribute("aria-pressed", state.audioEnabled ? "true" : "false");
     refs.btnToggleAudio.title = state.audioEnabled ? "Disable background loops" : "Enable background loops";
+  }
+
+  function syncSafetyControls() {
+    refs.panicShortcutEnabled.checked = state.panicShortcutEnabled;
   }
 
   function syncSortControl() {
@@ -1343,8 +1435,22 @@
     }
   }
 
+  function applyAudioPlaybackRateToPlayers() {
+    if (!state.audioPlayers) {
+      return;
+    }
+    const nextRate = normalizeAudioPlaybackRate(state.audioPlaybackRate, 1);
+    for (const player of state.audioPlayers) {
+      player.preservesPitch = false;
+      player.mozPreservesPitch = false;
+      player.webkitPreservesPitch = false;
+      player.playbackRate = nextRate;
+    }
+  }
+
   function ensureAudioPlayers() {
     if (state.audioPlayers) {
+      applyAudioPlaybackRateToPlayers();
       return state.audioPlayers;
     }
 
@@ -1353,6 +1459,10 @@
       audio.preload = "auto";
       audio.loop = true;
       audio.volume = 1;
+      audio.preservesPitch = false;
+      audio.mozPreservesPitch = false;
+      audio.webkitPreservesPitch = false;
+      audio.playbackRate = normalizeAudioPlaybackRate(state.audioPlaybackRate, 1);
       audio.addEventListener("error", () => {
         if (!state.audioEnabled) {
           return;
@@ -1451,6 +1561,41 @@
     state.audioSwitchInFlight = false;
   }
 
+  function pauseVisibleFeedMedia() {
+    const videos = refs.feed.querySelectorAll("video");
+    videos.forEach((video) => {
+      video.pause();
+    });
+  }
+
+  function redirectToGoogleSearch(lucky = false) {
+    const targetUrl = buildGoogleSearchUrl(refs.panicSearchInput?.value, lucky);
+    window.location.assign(targetUrl);
+  }
+
+  function setPanicOverlayActive(active) {
+    const next = Boolean(active);
+    if (!next || state.panicActive) {
+      return;
+    }
+    state.panicActive = true;
+    document.title = "New Tab";
+    refs.overlayPanic.classList.remove("hidden");
+    refs.overlayPanic.setAttribute("aria-hidden", "false");
+    setSettingsPanelOpen(false);
+    stopAutoAdvanceTimer();
+    stopAudioPlayback();
+    state.audioDisabledByPanic = true;
+    state.audioEnabled = false;
+    syncAudioControls();
+    pauseVisibleFeedMedia();
+    setActiveVideoLoading(false);
+    queueMicrotask(() => {
+      refs.panicSearchInput?.focus();
+      refs.panicSearchInput?.select();
+    });
+  }
+
   function randomAudioSwitchMs() {
     const min = Math.max(1, Math.min(state.audioMinSwitchSec, state.audioMaxSwitchSec));
     const max = Math.max(min, Math.max(state.audioMinSwitchSec, state.audioMaxSwitchSec));
@@ -1507,7 +1652,7 @@
   }
 
   function requestAudioSwitch(reason, preferDifferent) {
-    if (!state.audioEnabled) {
+    if (!state.audioEnabled || state.panicActive) {
       return;
     }
     if (state.audioSwitchInFlight) {
@@ -1551,6 +1696,10 @@
         const targetUrl = `${nextTrack.url}?_ts=${encodeURIComponent(nextTrack.updatedAt ?? "")}`;
         nextAudio.src = targetUrl;
         nextAudio.volume = currentAudio ? 0 : 1;
+        nextAudio.preservesPitch = false;
+        nextAudio.mozPreservesPitch = false;
+        nextAudio.webkitPreservesPitch = false;
+        nextAudio.playbackRate = normalizeAudioPlaybackRate(state.audioPlaybackRate, 1);
         try {
           await nextAudio.play();
           await crossfadePlayers(currentAudio, nextAudio);
@@ -1585,6 +1734,14 @@
   }
 
   async function setAudioEnabled(enabled, reason) {
+    if (state.panicActive && enabled) {
+      state.audioEnabled = false;
+      syncAudioControls();
+      return;
+    }
+    if (enabled) {
+      state.audioDisabledByPanic = false;
+    }
     state.audioEnabled = Boolean(enabled);
     syncAudioControls();
 
@@ -1618,12 +1775,12 @@
   function scheduleAutoAdvance() {
     stopAutoAdvanceTimer();
 
-    if (!state.autoAdvanceEnabled || !state.authValid || state.activeIndex < 0 || state.autoAdvanceTransitionInFlight) {
+    if (!state.autoAdvanceEnabled || !state.authValid || state.activeIndex < 0 || state.autoAdvanceTransitionInFlight || state.panicActive) {
       return;
     }
 
     state.autoAdvanceTimerId = setTimeout(async () => {
-      if (!state.autoAdvanceEnabled || !state.authValid || state.autoAdvanceTransitionInFlight) {
+      if (!state.autoAdvanceEnabled || !state.authValid || state.autoAdvanceTransitionInFlight || state.panicActive) {
         return;
       }
 
@@ -2077,7 +2234,11 @@
         if (cardIndex === index) {
           activeMedia = video;
         }
-        video.play().catch(() => {});
+        if (state.panicActive) {
+          video.pause();
+        } else {
+          video.play().catch(() => {});
+        }
       } else {
         video.pause();
       }
@@ -2132,7 +2293,7 @@
   }
 
   function onIntersect(entries) {
-    if (state.restoringMainFeed) {
+    if (state.restoringMainFeed || state.panicActive) {
       return;
     }
     const minRatio = 0.9;
@@ -2176,6 +2337,10 @@
     refs.btnToggleSettings.addEventListener("click", () => toggleSettingsPanel());
     refs.btnCloseSettings.addEventListener("click", () => setSettingsPanelOpen(false));
     refs.settingsBackdrop.addEventListener("click", () => setSettingsPanelOpen(false));
+    refs.panicSearchForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      redirectToGoogleSearch(false);
+    });
     refs.btnSortToggle.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -2331,6 +2496,17 @@
       syncAudioControls();
       void persistSettingsPatch({ audioCrossfadeSec: state.audioCrossfadeSec });
     });
+    refs.audioPlaybackRate.addEventListener("change", () => {
+      state.audioPlaybackRate = normalizeAudioPlaybackRate(refs.audioPlaybackRate.value, state.audioPlaybackRate);
+      syncAudioControls();
+      applyAudioPlaybackRateToPlayers();
+      void persistSettingsPatch({ audioPlaybackRate: state.audioPlaybackRate });
+    });
+    refs.panicShortcutEnabled.addEventListener("change", () => {
+      state.panicShortcutEnabled = refs.panicShortcutEnabled.checked;
+      syncSafetyControls();
+      void persistSettingsPatch({ panicShortcutEnabled: state.panicShortcutEnabled });
+    });
     refs.browsingLevelR.addEventListener("change", () => {
       state.browsingLevelR = refs.browsingLevelR.checked;
       syncAudioControls();
@@ -2358,6 +2534,20 @@
     });
 
     document.addEventListener("keydown", (event) => {
+      const isSpace = event.code === "Space" || event.key === " ";
+      if (state.panicActive) {
+        if (isSpace && !isEditableTarget(event.target)) {
+          event.preventDefault();
+        }
+        return;
+      }
+
+      if (state.panicShortcutEnabled && isSpace && !isEditableTarget(event.target)) {
+        event.preventDefault();
+        setPanicOverlayActive(true);
+        return;
+      }
+
       if (event.key === "Escape" && state.settingsPanelOpen) {
         setSettingsPanelOpen(false);
         return;
@@ -2419,11 +2609,13 @@
     setFeedInitializing(true);
     bindEvents();
     populateAutoAdvanceOptions();
+    populateAudioPlaybackRateOptions();
     state.isIosLike = detectIosLike();
     state.autoAdvanceEnabled = refs.autoAdvanceEnabled.checked;
     state.autoAdvanceSeconds = normalizeAutoAdvanceSeconds(refs.autoAdvanceSeconds.value);
     syncAutoAdvanceControls();
     syncAudioControls();
+    syncSafetyControls();
     syncSortControl();
     syncPeriodControl();
     syncOfflineBadge();

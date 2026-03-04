@@ -58,6 +58,8 @@ export interface Settings {
   audioMinSwitchSec: number;
   audioMaxSwitchSec: number;
   audioCrossfadeSec: number;
+  audioPlaybackRate: number;
+  panicShortcutEnabled: boolean;
   browsingLevelR: boolean;
   browsingLevelX: boolean;
   browsingLevelXXX: boolean;

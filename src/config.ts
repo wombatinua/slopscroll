@@ -66,6 +66,8 @@ export const defaultConfig: AppConfig = {
     audioMinSwitchSec: 15,
     audioMaxSwitchSec: 45,
     audioCrossfadeSec: 2,
+    audioPlaybackRate: 1,
+    panicShortcutEnabled: false,
     browsingLevelR: false,
     browsingLevelX: true,
     browsingLevelXXX: true,
@@ -189,6 +191,15 @@ export function loadConfig(): AppConfig {
       process.env.SLOPSCROLL_AUDIO_CROSSFADE_SEC,
       localConfig.settings?.audioCrossfadeSec ?? defaultConfig.settings.audioCrossfadeSec
     ),
+    audioPlaybackRate: toNum(
+      process.env.SLOPSCROLL_AUDIO_PLAYBACK_RATE,
+      localConfig.settings?.audioPlaybackRate ?? defaultConfig.settings.audioPlaybackRate
+    ),
+    panicShortcutEnabled:
+      (
+        process.env.SLOPSCROLL_PANIC_SHORTCUT_ENABLED ??
+        String(localConfig.settings?.panicShortcutEnabled ?? defaultConfig.settings.panicShortcutEnabled)
+      ).toLowerCase() === "true",
     browsingLevelR:
       (process.env.SLOPSCROLL_BROWSING_LEVEL_R ?? String(localConfig.settings?.browsingLevelR ?? defaultConfig.settings.browsingLevelR)).toLowerCase() ===
       "true",
@@ -211,6 +222,7 @@ export function loadConfig(): AppConfig {
       localConfig.settings?.offlineFeedOrder ?? defaultConfig.settings.offlineFeedOrder
     )
   };
+  settings.audioPlaybackRate = Math.max(0.5, Math.min(2, settings.audioPlaybackRate));
 
   const civitai = {
     validatePath: process.env.SLOPSCROLL_CIVITAI_VALIDATE_PATH ?? localConfig.civitai?.validatePath ?? defaultConfig.civitai.validatePath,

@@ -439,6 +439,8 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
       audioMinSwitchSec?: number;
       audioMaxSwitchSec?: number;
       audioCrossfadeSec?: number;
+      audioPlaybackRate?: number;
+      panicShortcutEnabled?: boolean;
       browsingLevelR?: boolean;
       browsingLevelX?: boolean;
       browsingLevelXXX?: boolean;
@@ -453,11 +455,13 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
     const requestedAudioMin = Number(req.body?.audioMinSwitchSec ?? existing.audioMinSwitchSec);
     const requestedAudioMax = Number(req.body?.audioMaxSwitchSec ?? existing.audioMaxSwitchSec);
     const requestedAudioCrossfade = Number(req.body?.audioCrossfadeSec ?? existing.audioCrossfadeSec);
+    const requestedAudioPlaybackRate = Number(req.body?.audioPlaybackRate ?? existing.audioPlaybackRate);
     const audioMinSwitchSec = clamp(Math.trunc(requestedAudioMin), 1, 3600);
     const audioMaxSwitchSec = clamp(Math.trunc(requestedAudioMax), 1, 3600);
     const normalizedAudioMin = Math.min(audioMinSwitchSec, audioMaxSwitchSec);
     const normalizedAudioMax = Math.max(audioMinSwitchSec, audioMaxSwitchSec);
     const normalizedAudioCrossfade = Math.max(0, Math.min(30, requestedAudioCrossfade));
+    const normalizedAudioPlaybackRate = Math.max(0.5, Math.min(2, requestedAudioPlaybackRate));
 
     const legacyOfflineEnabled = typeof req.body?.offlineModeEnabled === "boolean" ? req.body.offlineModeEnabled : null;
 
@@ -477,6 +481,8 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
       audioMinSwitchSec: normalizedAudioMin,
       audioMaxSwitchSec: normalizedAudioMax,
       audioCrossfadeSec: normalizedAudioCrossfade,
+      audioPlaybackRate: normalizedAudioPlaybackRate,
+      panicShortcutEnabled: Boolean(req.body?.panicShortcutEnabled ?? existing.panicShortcutEnabled),
       browsingLevelR: Boolean(req.body?.browsingLevelR ?? existing.browsingLevelR),
       browsingLevelX: Boolean(req.body?.browsingLevelX ?? existing.browsingLevelX),
       browsingLevelXXX: Boolean(req.body?.browsingLevelXXX ?? existing.browsingLevelXXX),
@@ -497,6 +503,10 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
     if (!Number.isFinite(requestedAudioCrossfade)) {
       reply.code(400);
       return { ok: false, error: "audioCrossfadeSec must be a number" };
+    }
+    if (!Number.isFinite(requestedAudioPlaybackRate)) {
+      reply.code(400);
+      return { ok: false, error: "audioPlaybackRate must be a number" };
     }
 
     deps.db.setSettings(next);

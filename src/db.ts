@@ -707,7 +707,7 @@ export class AppDb {
   getSettings(defaults: Settings): Settings {
     const rows = this.db
       .prepare(
-        `SELECT key, value FROM settings WHERE key IN ('prefetchDepth', 'lowDiskWarnGb', 'audioEnabled', 'audioAutoSwitchEnabled', 'audioSwitchOnVideoChangeEnabled', 'audioMinSwitchSec', 'audioMaxSwitchSec', 'audioCrossfadeSec', 'browsingLevelR', 'browsingLevelX', 'browsingLevelXXX', 'feedSort', 'feedPeriod', 'feedMode', 'offlineModeEnabled', 'offlineFeedOrder')`
+        `SELECT key, value FROM settings WHERE key IN ('prefetchDepth', 'lowDiskWarnGb', 'audioEnabled', 'audioAutoSwitchEnabled', 'audioSwitchOnVideoChangeEnabled', 'audioMinSwitchSec', 'audioMaxSwitchSec', 'audioCrossfadeSec', 'audioPlaybackRate', 'panicShortcutEnabled', 'browsingLevelR', 'browsingLevelX', 'browsingLevelXXX', 'feedSort', 'feedPeriod', 'feedMode', 'offlineModeEnabled', 'offlineFeedOrder')`
       )
       .all() as Array<{ key: string; value: string }>;
 
@@ -752,6 +752,15 @@ export class AppDb {
         if (Number.isFinite(parsed)) {
           output.audioCrossfadeSec = parsed;
         }
+      }
+      if (row.key === "audioPlaybackRate") {
+        const parsed = Number.parseFloat(row.value);
+        if (Number.isFinite(parsed)) {
+          output.audioPlaybackRate = Math.max(0.5, Math.min(2, parsed));
+        }
+      }
+      if (row.key === "panicShortcutEnabled") {
+        output.panicShortcutEnabled = row.value.toLowerCase() === "true";
       }
       if (row.key === "browsingLevelR") {
         output.browsingLevelR = row.value.toLowerCase() === "true";
@@ -802,6 +811,8 @@ export class AppDb {
       ["audioMinSwitchSec", String(settings.audioMinSwitchSec)],
       ["audioMaxSwitchSec", String(settings.audioMaxSwitchSec)],
       ["audioCrossfadeSec", String(settings.audioCrossfadeSec)],
+      ["audioPlaybackRate", String(settings.audioPlaybackRate)],
+      ["panicShortcutEnabled", String(settings.panicShortcutEnabled)],
       ["browsingLevelR", String(settings.browsingLevelR)],
       ["browsingLevelX", String(settings.browsingLevelX)],
       ["browsingLevelXXX", String(settings.browsingLevelXXX)],
