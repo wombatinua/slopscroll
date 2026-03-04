@@ -71,3 +71,9 @@
 - [ ] `GET /api/cache/stats` returns bytes/hit-rate counts.
 - [ ] Low-disk warning state exposed in stats.
 - [ ] Logs show feed/cache/auth/download events.
+
+## Docker
+
+- [ ] `docker compose up -d --build` succeeds.
+- [ ] Service transitions to `healthy` via healthcheck.
+- [ ] Host `./data` bind mounts are used for images/videos/sounds/session persistence.

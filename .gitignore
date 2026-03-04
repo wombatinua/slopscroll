@@ -12,5 +12,3 @@ data/videos/*
 !data/videos/.gitkeep
 data/images/*
 !data/images/.gitkeep
-data/sounds/*
-!data/sounds/.gitkeep

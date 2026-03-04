@@ -9,6 +9,20 @@
 5. Open `http://localhost:3579`
 6. Paste full browser `Cookie` header in UI
 
+## Docker Operation
+
+Start/rebuild:
+1. `docker compose up -d --build`
+2. `docker compose ps`
+3. `docker compose logs -f slopscroll` (if needed)
+
+Stop:
+1. `docker compose down`
+
+Notes:
+- Service health is based on `GET /api/health`.
+- Persistent state is host-mounted from `./data` (`images`, `videos`, `sounds`, `session`).
+
 ## Daily Operation
 
 - If feed fails with auth error, re-import fresh cookies.
@@ -80,3 +94,17 @@
 
 - Cache never auto-deletes.
 - Increase storage or manually remove files in `data/videos` if desired.
+
+### Docker FAQ
+
+- Container stuck in `starting`:
+  - Wait for healthcheck `start_period` (about 25 seconds).
+  - Check `docker compose ps` again.
+- Container shows `unhealthy`:
+  - Run `docker compose logs -f slopscroll`.
+  - Verify app responds on `http://localhost:3579/api/health`.
+- Data not persisting:
+  - Verify host folders exist under `./data`.
+  - Verify compose bind mounts are not overridden.
+- Changes not applied after pull/edit:
+  - Rebuild image with `docker compose up -d --build`.

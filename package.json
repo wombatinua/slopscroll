@@ -1,6 +1,6 @@
 {
   "name": "slopscroll",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "description": "Cache-first local scroller for Civitai videos",
   "main": "dist/src/server.js",
   "scripts": {
@@ -17,12 +17,12 @@
     "node": ">=25"
   },
   "dependencies": {
-    "@fastify/static": "^7.0.4",
-    "fastify": "^4.28.1"
+    "@fastify/static": "^9.0.0",
+    "fastify": "^5.7.4"
   },
   "devDependencies": {
-    "@types/node": "^25.0.0",
-    "tsx": "^4.19.3",
-    "typescript": "^5.8.2"
+    "@types/node": "^25.3.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
   }
 }

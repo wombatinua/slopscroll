@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.17.0 - 2026-03-04
+
+- Updated dependencies to latest stable major/minor releases:
+  - `fastify@5.7.4`
+  - `@fastify/static@9.0.0`
+  - `typescript@5.9.3`
+  - `tsx@4.21.0`
+  - `@types/node@25.3.3`
+- Added containerization files:
+  - `Dockerfile` (multi-stage, `node:latest`)
+  - `compose.yaml` (data bind mounts + healthcheck)
+  - `.dockerignore`
+- Expanded documentation for Docker setup, operations, troubleshooting, and acceptance checks.
+- Included `data/sounds` assets in git as part of the application dataset.
+
 ## 0.16.0 - 2026-03-04
 
 - Renamed local audio library path from `data/media` to `data/sounds`.

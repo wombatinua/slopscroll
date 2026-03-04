@@ -1,0 +1,38 @@
+services:
+  slopscroll:
+    container_name: slopscroll
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: slopscroll:latest
+    restart: unless-stopped
+    ports:
+      - "3579:3579"
+    environment:
+      NODE_ENV: production
+      SLOPSCROLL_HOST: 0.0.0.0
+      SLOPSCROLL_PORT: 3579
+      SLOPSCROLL_DATA_DIR: /app/data
+      SLOPSCROLL_SOUNDS_DIR: /app/data/sounds
+    volumes:
+      - type: bind
+        source: ./data
+        target: /app/data
+      - type: bind
+        source: ./data/images
+        target: /app/data/images
+      - type: bind
+        source: ./data/videos
+        target: /app/data/videos
+      - type: bind
+        source: ./data/sounds
+        target: /app/data/sounds
+      - type: bind
+        source: ./data/session
+        target: /app/data/session
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3579/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1));"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s

@@ -2,7 +2,7 @@
 
 Local single-user cache-first video scroller for Civitai.
 
-Current version: `0.16.0`
+Current version: `0.17.0`
 
 ## Stack
 
@@ -40,6 +40,46 @@ npm run dev
 5. Open `http://localhost:3579`.
 
 6. Paste full browser `Cookie` header in UI.
+
+## Docker
+
+Run with Docker Compose:
+
+```bash
+docker compose up -d --build
+```
+
+Stop:
+
+```bash
+docker compose down
+```
+
+Container runtime details:
+- Uses `node:latest`.
+- Health check probes `GET /api/health`.
+- Binds local data folders into container:
+  - `./data/images` -> `/app/data/images`
+  - `./data/videos` -> `/app/data/videos`
+  - `./data/sounds` -> `/app/data/sounds`
+  - `./data/session` -> `/app/data/session`
+
+### Docker FAQ
+
+Q: Why is container health `starting` for a while?
+A: Startup includes boot + healthcheck start period. Wait ~25-30s, then check `docker compose ps`.
+
+Q: Why is container `unhealthy`?
+A: Check logs (`docker compose logs -f slopscroll`). Most common causes are invalid runtime config or app startup failure.
+
+Q: Where are cached videos/images/database stored?
+A: On host under `./data/*` because compose uses bind mounts.
+
+Q: Why are cookies/spec missing after restart?
+A: Confirm `./data/session` and `./data/civitai-request-spec.json` exist on host and are mounted to `/app/data`.
+
+Q: How do I pick up code/dependency changes?
+A: Rebuild image: `docker compose up -d --build`.
 
 ## API
 
