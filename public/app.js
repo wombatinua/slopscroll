@@ -753,6 +753,9 @@
       }
       if (browsingChanged && state.authValid) {
         await resetFeedAndLoad();
+        if (state.selectedAuthor) {
+          void refreshAuthorTotal(state.selectedAuthor);
+        }
         showToast("Settings saved. Feed reloaded");
       } else {
         showToast("Settings saved");
@@ -948,6 +951,9 @@
       setSortMenuOpen(false);
       if (state.authValid) {
         await resetFeedAndLoad();
+        if (state.selectedAuthor) {
+          void refreshAuthorTotal(state.selectedAuthor);
+        }
       }
       showToast(`Sort: ${state.feedSort}`);
     } catch (err) {
@@ -974,6 +980,9 @@
       setPeriodMenuOpen(false);
       if (state.authValid) {
         await resetFeedAndLoad();
+        if (state.selectedAuthor) {
+          void refreshAuthorTotal(state.selectedAuthor);
+        }
       }
       showToast(`Period: ${state.feedPeriod === "AllTime" ? "All Time" : state.feedPeriod}`);
     } catch (err) {

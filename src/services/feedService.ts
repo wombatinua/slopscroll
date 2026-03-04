@@ -120,9 +120,10 @@ export class FeedService {
     if (!normalizedAuthor) {
       throw new Error("author is required");
     }
+    const totalsKey = this.getAuthorTotalsKey(normalizedAuthor);
 
     const now = Date.now();
-    const cached = this.authorTotalsCache.get(normalizedAuthor);
+    const cached = this.authorTotalsCache.get(totalsKey);
     if (!options?.forceRefresh && cached && now - cached.checkedAt < FeedService.AUTHOR_TOTALS_TTL_MS) {
       return {
         author: normalizedAuthor,
@@ -133,7 +134,7 @@ export class FeedService {
       };
     }
 
-    const existing = this.authorTotalsInFlight.get(normalizedAuthor);
+    const existing = this.authorTotalsInFlight.get(totalsKey);
     if (existing) {
       const result = await existing;
       return {
@@ -143,14 +144,13 @@ export class FeedService {
       };
     }
 
-    const allowSlowFallback = options?.allowSlowFallback ?? Boolean(options?.forceRefresh);
-    const task = this.computeAuthorVideoTotalSmart(normalizedAuthor, allowSlowFallback);
-    this.authorTotalsInFlight.set(normalizedAuthor, task);
+    const task = this.computeAuthorVideoTotal(normalizedAuthor);
+    this.authorTotalsInFlight.set(totalsKey, task);
 
     try {
       const result = await task;
       if (result.complete) {
-        this.authorTotalsCache.set(normalizedAuthor, {
+        this.authorTotalsCache.set(totalsKey, {
           totalVideos: result.totalVideos,
           checkedAt: now
         });
@@ -162,38 +162,8 @@ export class FeedService {
         cached: false
       };
     } finally {
-      this.authorTotalsInFlight.delete(normalizedAuthor);
+      this.authorTotalsInFlight.delete(totalsKey);
     }
-  }
-
-  private async computeAuthorVideoTotalSmart(
-    author: string,
-    allowSlowFallback: boolean
-  ): Promise<{ totalVideos: number; complete: boolean; scannedPages: number }> {
-    const cookies = this.sessionStore.getCookies();
-    if (!cookies) {
-      throw new Error("No auth cookies configured. Use POST /api/auth/cookies first.");
-    }
-
-    const quick = await this.civitaiClient.fetchAuthorOverview(author, cookies);
-    if (quick.ok) {
-      return {
-        totalVideos: quick.videoCount,
-        complete: true,
-        scannedPages: 0
-      };
-    }
-
-    if (!allowSlowFallback) {
-      throw new Error(`Fast author total lookup failed: ${quick.error}`);
-    }
-
-    logger.warn("author.total.fallback", {
-      author,
-      reason: quick.error
-    });
-
-    return this.computeAuthorVideoTotal(author);
   }
 
   private async computeAuthorVideoTotal(author: string): Promise<{ totalVideos: number; complete: boolean; scannedPages: number }> {
@@ -327,5 +297,9 @@ export class FeedService {
   private normalizeAuthor(author?: string | null): string | null {
     const value = (author ?? "").trim().toLowerCase();
     return value || null;
+  }
+
+  private getAuthorTotalsKey(author: string): string {
+    return `${author}|${this.civitaiClient.getAuthorTotalFilterKey()}`;
   }
 }

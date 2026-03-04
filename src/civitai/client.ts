@@ -35,6 +35,10 @@ export class CivitaiClient {
     return this.config.settings.feedPeriod;
   }
 
+  getAuthorTotalFilterKey(): string {
+    return `${this.getConfiguredFeedPeriod()}|${this.getConfiguredBrowsingLevel()}`;
+  }
+
   setRequestSpec(spec: CivitaiRequestSpec | null): void {
     this.spec = spec;
   }
