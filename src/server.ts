@@ -80,6 +80,8 @@ async function bootstrap(): Promise<void> {
 
   const sessionExists = Boolean(sessionStore.getCookies());
   logger.info("startup", {
+    appVersion: config.appVersion,
+    appCommit: config.appCommit,
     port: config.port,
     host: config.host,
     staticDir: config.staticDir,

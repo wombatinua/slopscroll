@@ -1,8 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import type { CivitaiRequestSpec, FeedMode, FeedPeriod, FeedSort, OfflineFeedOrder, Settings } from "./types";
 
 export interface AppConfig {
+  appVersion: string;
+  appCommit: string;
   host: string;
   port: number;
   soundsDir: string;
@@ -31,7 +34,56 @@ const ALLOWED_FEED_PERIODS: FeedPeriod[] = ["Day", "Week", "Month", "Year", "All
 const ALLOWED_OFFLINE_FEED_ORDERS: OfflineFeedOrder[] = ["Newest", "Oldest", "Random"];
 const ALLOWED_FEED_MODES: FeedMode[] = ["online", "offline_video", "offline_image"];
 
+function normalizeCommitSha(value: string | undefined): string | null {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) {
+    return null;
+  }
+  const hex = normalized.match(/^[0-9a-f]{7,40}$/i);
+  if (!hex) {
+    return normalized;
+  }
+  return normalized.slice(0, 7).toLowerCase();
+}
+
+function resolveGitCommit(rootDir: string): string {
+  const fromEnv = normalizeCommitSha(process.env.APP_COMMIT);
+  if (fromEnv) {
+    return fromEnv;
+  }
+
+  try {
+    const output = spawnSync("git", ["rev-parse", "--short=7", "HEAD"], {
+      cwd: rootDir,
+      encoding: "utf8"
+    });
+    if (output.status === 0) {
+      const fromGit = normalizeCommitSha(output.stdout);
+      if (fromGit) {
+        return fromGit;
+      }
+    }
+  } catch {
+    // Ignore; fall through to unknown.
+  }
+
+  return "unknown";
+}
+
+function readPackageVersion(rootDir: string): string {
+  try {
+    const pkgPath = path.join(rootDir, "package.json");
+    const pkg = readJsonFile<{ version?: string }>(pkgPath);
+    const version = String(pkg?.version ?? "").trim();
+    return version || "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
 export const defaultConfig: AppConfig = {
+  appVersion: readPackageVersion(ROOT),
+  appCommit: "unknown",
   host: "0.0.0.0",
   port: 3579,
   soundsDir: DEFAULT_SOUNDS_DIR,
@@ -135,6 +187,8 @@ export function loadConfig(): AppConfig {
   const legacyEnvOfflineEnabledRaw = process.env.SLOPSCROLL_OFFLINE_MODE_ENABLED;
   const legacyEnvOfflineEnabled = legacyEnvOfflineEnabledRaw != null && legacyEnvOfflineEnabledRaw.toLowerCase() === "true";
   const inferredLegacyFeedMode = legacyEnvOfflineEnabled ? "offline_video" : "online";
+  const appVersion = readPackageVersion(ROOT);
+  const appCommit = resolveGitCommit(ROOT);
 
   const host = process.env.APP_HOST ?? defaultConfig.host;
   const port = toInt(process.env.APP_PORT, defaultConfig.port);
@@ -179,6 +233,8 @@ export function loadConfig(): AppConfig {
   };
 
   return {
+    appVersion,
+    appCommit,
     host,
     port,
     soundsDir,

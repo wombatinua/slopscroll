@@ -16,10 +16,12 @@ RUN npm run build
 FROM node:latest AS runtime
 WORKDIR /app
 
+ARG APP_COMMIT=unknown
 ENV NODE_ENV=production
 ENV APP_HOST=0.0.0.0
 ENV APP_PORT=3579
 ENV APP_DATA_DIR=/app/data
+ENV APP_COMMIT=$APP_COMMIT
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force

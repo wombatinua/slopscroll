@@ -116,6 +116,7 @@
     btnShowLikedUsers: document.getElementById("btn-show-liked-users"),
     likedUsersList: document.getElementById("liked-users-list"),
     likesSection: document.getElementById("likes-section"),
+    appVersionLabel: document.getElementById("app-version-label"),
     fixedMeta: document.getElementById("fixed-meta"),
     fixedMetaMain: document.getElementById("fixed-meta-main"),
     fixedMetaSub: document.getElementById("fixed-meta-sub"),
@@ -1049,6 +1050,20 @@
       applySettingsSnapshot(result.settings);
     } catch (err) {
       showToast(`Settings load failed: ${err.message}`, true);
+    }
+  }
+
+  async function loadAppInfo() {
+    if (!refs.appVersionLabel) {
+      return;
+    }
+    try {
+      const result = await api("/api/app/info");
+      const version = String(result?.version ?? "").trim() || "0.0.0";
+      const commit = String(result?.commit ?? "").trim() || "unknown";
+      refs.appVersionLabel.textContent = `SlopScroll ${version} (${commit})`;
+    } catch {
+      refs.appVersionLabel.textContent = "SlopScroll";
     }
   }
 
@@ -2655,6 +2670,7 @@
     setFullscreenUi(Boolean(document.fullscreenElement));
     setSettingsPanelOpen(false);
     updateFeedModeUi();
+    await loadAppInfo();
     await loadSettings();
     if (!isOfflineImageMode()) {
       try {

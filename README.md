@@ -49,6 +49,20 @@ Stop:
 docker compose down
 ```
 
+Use prebuilt GHCR image (`wombatinua/slopscroll`):
+
+```bash
+docker pull ghcr.io/wombatinua/slopscroll:latest
+docker run --rm -p 3579:3579 \
+  -e APP_HOST=0.0.0.0 \
+  -e APP_PORT=3579 \
+  -e APP_DATA_DIR=/app/data \
+  -v "$(pwd)/data:/app/data" \
+  ghcr.io/wombatinua/slopscroll:latest
+```
+
+Package page: `https://github.com/wombatinua/slopscroll/pkgs/container/slopscroll`
+
 Container runtime details:
 - Uses `node:latest`.
 - Health check probes `GET /api/health`.
@@ -93,6 +107,7 @@ A: With compose defaults, loops come from host `${DATA_DIR}/sounds`, so changes 
 - `GET /api/image/:id`
 - `GET /api/settings`
 - `PUT /api/settings`
+- `GET /api/app/info`
 - `GET /api/cache/stats`
 - `POST /api/spec/reload`
 - `GET /api/audio/library`
@@ -113,6 +128,7 @@ A: With compose defaults, loops come from host `${DATA_DIR}/sounds`, so changes 
 - Low disk only triggers warnings; downloads are not auto-deleted.
 - Background prefetch depth default: `3` (configurable `0..10`).
 - Settings are saved immediately on UI control change (no Save Settings button).
+- Settings panel footer shows `SlopScroll X.X.X (commit)`.
 - Author-feed header navigation:
   - Back arrow returns to the exact main-feed position where author feed was opened.
   - Clicking `SlopScroll` always reinitializes main feed.

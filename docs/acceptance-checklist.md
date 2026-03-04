@@ -36,6 +36,7 @@
 - [ ] Active-video buffering/loading shows loader (no lingering black bar with no feedback).
 - [ ] Loading/error states are visible.
 - [ ] Settings apply instantly when controls change (no Save Settings button).
+- [ ] Settings panel footer shows `SlopScroll X.X.X (commit)`.
 - [ ] In author feed, back arrow returns to exact previous position in main feed.
 - [ ] Clicking `SlopScroll` reinitializes main feed from start.
 - [ ] Mode badge appears in header (`OFFLINE VIDEO` or `OFFLINE IMAGE`) when not in online mode.

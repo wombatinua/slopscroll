@@ -114,6 +114,11 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
   };
 
   app.get("/api/health", async () => ({ ok: true, ts: new Date().toISOString() }));
+  app.get("/api/app/info", async () => ({
+    ok: true,
+    version: deps.config.appVersion,
+    commit: deps.config.appCommit
+  }));
 
   app.post<{ Body: { cookies?: string } }>("/api/auth/cookies", async (req, reply) => {
     if (isAnyOfflineMode()) {
