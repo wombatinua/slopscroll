@@ -1,7 +1,6 @@
 node_modules
 npm-debug.log*
 dist
-.env
 .DS_Store
 data/database.db
 data/database.db-shm
@@ -12,3 +11,5 @@ data/videos/*
 !data/videos/.gitkeep
 data/images/*
 !data/images/.gitkeep
+!data/images/sample*.png
+.env

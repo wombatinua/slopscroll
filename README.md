@@ -19,27 +19,21 @@ Current version: `0.17.0`
 npm install
 ```
 
-2. Optional config override:
-
-```bash
-cp config/local.example.json config/local.json
-```
-
-3. Generate Civitai request spec from HAR (required for online mode):
+2. Generate Civitai request spec from HAR (required for online mode):
 
 ```bash
 npm run parse-har -- /absolute/path/to/session.har
 ```
 
-4. Start app:
+3. Start app:
 
 ```bash
 npm run dev
 ```
 
-5. Open `http://localhost:3579`.
+4. Open `http://localhost:3579`.
 
-6. Paste full browser `Cookie` header in UI.
+5. Paste full browser `Cookie` header in UI.
 
 ## Docker
 
@@ -58,11 +52,12 @@ docker compose down
 Container runtime details:
 - Uses `node:latest`.
 - Health check probes `GET /api/health`.
-- Binds local data folders into container:
-  - `./data/images` -> `/app/data/images`
-  - `./data/videos` -> `/app/data/videos`
-  - `./data/sounds` -> `/app/data/sounds`
-  - `./data/session` -> `/app/data/session`
+- Compose auto-loads variables from `.env` for `APP_HOST`, `APP_PORT`, `DATA_DIR`, `DATA_IMAGES_DIR`, and `DATA_VIDEOS_DIR`.
+- Binds local mutable data into container:
+  - `${DATA_DIR}` -> `/app/data` (includes `sounds`, `session`, DB, spec)
+  - `${DATA_IMAGES_DIR}` -> `/app/data/images` (optional override)
+  - `${DATA_VIDEOS_DIR}` -> `/app/data/videos` (optional override)
+- Image also includes `data/sounds` as fallback when no host data mount is used.
 
 ### Docker FAQ
 
@@ -75,11 +70,17 @@ A: Check logs (`docker compose logs -f slopscroll`). Most common causes are inva
 Q: Where are cached videos/images/database stored?
 A: On host under `./data/*` because compose uses bind mounts.
 
+Q: How do I override compose ports or bind paths?
+A: Edit `.env` (`APP_HOST`, `APP_PORT`, `DATA_DIR`, `DATA_IMAGES_DIR`, `DATA_VIDEOS_DIR`).
+
 Q: Why are cookies/spec missing after restart?
 A: Confirm `./data/session` and `./data/civitai-request-spec.json` exist on host and are mounted to `/app/data`.
 
 Q: How do I pick up code/dependency changes?
 A: Rebuild image: `docker compose up -d --build`.
+
+Q: I changed audio files under `data/sounds` and container still has old loops.
+A: With compose defaults, loops come from host `${DATA_DIR}/sounds`, so changes apply immediately (restart container if needed). Rebuild is only required when running without host data mount.
 
 ## API
 

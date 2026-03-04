@@ -23,22 +23,6 @@ export interface AppConfig {
   };
 }
 
-interface PartialConfig {
-  host?: string;
-  port?: number;
-  soundsDir?: string;
-  mediaDir?: string;
-  dataDir?: string;
-  settings?: Partial<Settings>;
-  civitai?: {
-    validatePath?: string;
-    requestTimeoutMs?: number;
-    downloadTimeoutMs?: number;
-    maxDownloadRetries?: number;
-    prefetchConcurrency?: number;
-  };
-}
-
 const ROOT = process.cwd();
 const DEFAULT_DATA_DIR = path.join(ROOT, "data");
 const DEFAULT_SOUNDS_DIR = path.join(DEFAULT_DATA_DIR, "sounds");
@@ -60,18 +44,18 @@ export const defaultConfig: AppConfig = {
   staticDir: path.join(ROOT, "public"),
   settings: {
     prefetchDepth: 3,
-    lowDiskWarnGb: 2,
+    lowDiskWarnGb: 64,
     audioEnabled: false,
     audioAutoSwitchEnabled: true,
     audioSwitchOnVideoChangeEnabled: true,
-    audioMinSwitchSec: 15,
-    audioMaxSwitchSec: 45,
-    audioCrossfadeSec: 2,
+    audioMinSwitchSec: 5,
+    audioMaxSwitchSec: 30,
+    audioCrossfadeSec: 1,
     audioPlaybackRate: 1,
-    panicShortcutEnabled: false,
+    panicShortcutEnabled: true,
     browsingLevelR: false,
-    browsingLevelX: true,
-    browsingLevelXXX: true,
+    browsingLevelX: false,
+    browsingLevelXXX: false,
     feedSort: "Newest",
     feedPeriod: "Week",
     feedMode: "online",
@@ -148,96 +132,49 @@ function toFeedMode(value: string | undefined, fallback: FeedMode): FeedMode {
 }
 
 export function loadConfig(): AppConfig {
-  const localPath = path.join(ROOT, "config", "local.json");
-  const localConfig = readJsonFile<PartialConfig>(localPath) ?? {};
-  const legacyLocalOfflineEnabledRaw = (localConfig.settings as { offlineModeEnabled?: unknown } | undefined)?.offlineModeEnabled;
-  const legacyLocalOfflineEnabled =
-    typeof legacyLocalOfflineEnabledRaw === "boolean"
-      ? legacyLocalOfflineEnabledRaw
-      : String(legacyLocalOfflineEnabledRaw ?? "").toLowerCase() === "true";
   const legacyEnvOfflineEnabledRaw = process.env.SLOPSCROLL_OFFLINE_MODE_ENABLED;
   const legacyEnvOfflineEnabled = legacyEnvOfflineEnabledRaw != null && legacyEnvOfflineEnabledRaw.toLowerCase() === "true";
-  const inferredLegacyFeedMode = legacyEnvOfflineEnabled || legacyLocalOfflineEnabled ? "offline_video" : "online";
+  const inferredLegacyFeedMode = legacyEnvOfflineEnabled ? "offline_video" : "online";
 
-  const host = process.env.SLOPSCROLL_HOST ?? localConfig.host ?? defaultConfig.host;
-  const port = toInt(process.env.SLOPSCROLL_PORT, localConfig.port ?? defaultConfig.port);
-  const dataDir = process.env.SLOPSCROLL_DATA_DIR ?? localConfig.dataDir ?? defaultConfig.dataDir;
-  const soundsDir =
-    process.env.SLOPSCROLL_SOUNDS_DIR ??
-    process.env.SLOPSCROLL_MEDIA_DIR ??
-    localConfig.soundsDir ??
-    localConfig.mediaDir ??
-    path.join(dataDir, "sounds");
+  const host = process.env.APP_HOST ?? defaultConfig.host;
+  const port = toInt(process.env.APP_PORT, defaultConfig.port);
+  const dataDir = process.env.APP_DATA_DIR ?? defaultConfig.dataDir;
+  const soundsDir = path.join(dataDir, "sounds");
 
   const settings: Settings = {
-    prefetchDepth: toInt(process.env.SLOPSCROLL_PREFETCH_DEPTH, localConfig.settings?.prefetchDepth ?? defaultConfig.settings.prefetchDepth),
-    lowDiskWarnGb: toNum(process.env.SLOPSCROLL_LOW_DISK_WARN_GB, localConfig.settings?.lowDiskWarnGb ?? defaultConfig.settings.lowDiskWarnGb),
-    audioEnabled:
-      (process.env.SLOPSCROLL_AUDIO_ENABLED ?? String(localConfig.settings?.audioEnabled ?? defaultConfig.settings.audioEnabled)).toLowerCase() ===
-      "true",
+    prefetchDepth: toInt(process.env.SLOPSCROLL_PREFETCH_DEPTH, defaultConfig.settings.prefetchDepth),
+    lowDiskWarnGb: toNum(process.env.SLOPSCROLL_LOW_DISK_WARN_GB, defaultConfig.settings.lowDiskWarnGb),
+    audioEnabled: (process.env.SLOPSCROLL_AUDIO_ENABLED ?? String(defaultConfig.settings.audioEnabled)).toLowerCase() === "true",
     audioAutoSwitchEnabled:
-      (
-        process.env.SLOPSCROLL_AUDIO_AUTO_SWITCH_ENABLED ??
-        String(localConfig.settings?.audioAutoSwitchEnabled ?? defaultConfig.settings.audioAutoSwitchEnabled)
-      ).toLowerCase() === "true",
+      (process.env.SLOPSCROLL_AUDIO_AUTO_SWITCH_ENABLED ?? String(defaultConfig.settings.audioAutoSwitchEnabled)).toLowerCase() === "true",
     audioSwitchOnVideoChangeEnabled:
-      (
-        process.env.SLOPSCROLL_AUDIO_SWITCH_ON_VIDEO_CHANGE_ENABLED ??
-        String(localConfig.settings?.audioSwitchOnVideoChangeEnabled ?? defaultConfig.settings.audioSwitchOnVideoChangeEnabled)
-      ).toLowerCase() === "true",
-    audioMinSwitchSec: toInt(
-      process.env.SLOPSCROLL_AUDIO_MIN_SWITCH_SEC,
-      localConfig.settings?.audioMinSwitchSec ?? defaultConfig.settings.audioMinSwitchSec
-    ),
-    audioMaxSwitchSec: toInt(
-      process.env.SLOPSCROLL_AUDIO_MAX_SWITCH_SEC,
-      localConfig.settings?.audioMaxSwitchSec ?? defaultConfig.settings.audioMaxSwitchSec
-    ),
-    audioCrossfadeSec: toNum(
-      process.env.SLOPSCROLL_AUDIO_CROSSFADE_SEC,
-      localConfig.settings?.audioCrossfadeSec ?? defaultConfig.settings.audioCrossfadeSec
-    ),
-    audioPlaybackRate: toNum(
-      process.env.SLOPSCROLL_AUDIO_PLAYBACK_RATE,
-      localConfig.settings?.audioPlaybackRate ?? defaultConfig.settings.audioPlaybackRate
-    ),
+      (process.env.SLOPSCROLL_AUDIO_SWITCH_ON_VIDEO_CHANGE_ENABLED ?? String(defaultConfig.settings.audioSwitchOnVideoChangeEnabled)).toLowerCase() ===
+      "true",
+    audioMinSwitchSec: toInt(process.env.SLOPSCROLL_AUDIO_MIN_SWITCH_SEC, defaultConfig.settings.audioMinSwitchSec),
+    audioMaxSwitchSec: toInt(process.env.SLOPSCROLL_AUDIO_MAX_SWITCH_SEC, defaultConfig.settings.audioMaxSwitchSec),
+    audioCrossfadeSec: toNum(process.env.SLOPSCROLL_AUDIO_CROSSFADE_SEC, defaultConfig.settings.audioCrossfadeSec),
+    audioPlaybackRate: toNum(process.env.SLOPSCROLL_AUDIO_PLAYBACK_RATE, defaultConfig.settings.audioPlaybackRate),
     panicShortcutEnabled:
-      (
-        process.env.SLOPSCROLL_PANIC_SHORTCUT_ENABLED ??
-        String(localConfig.settings?.panicShortcutEnabled ?? defaultConfig.settings.panicShortcutEnabled)
-      ).toLowerCase() === "true",
-    browsingLevelR:
-      (process.env.SLOPSCROLL_BROWSING_LEVEL_R ?? String(localConfig.settings?.browsingLevelR ?? defaultConfig.settings.browsingLevelR)).toLowerCase() ===
-      "true",
-    browsingLevelX:
-      (process.env.SLOPSCROLL_BROWSING_LEVEL_X ?? String(localConfig.settings?.browsingLevelX ?? defaultConfig.settings.browsingLevelX)).toLowerCase() ===
-      "true",
+      (process.env.SLOPSCROLL_PANIC_SHORTCUT_ENABLED ?? String(defaultConfig.settings.panicShortcutEnabled)).toLowerCase() === "true",
+    browsingLevelR: (process.env.SLOPSCROLL_BROWSING_LEVEL_R ?? String(defaultConfig.settings.browsingLevelR)).toLowerCase() === "true",
+    browsingLevelX: (process.env.SLOPSCROLL_BROWSING_LEVEL_X ?? String(defaultConfig.settings.browsingLevelX)).toLowerCase() === "true",
     browsingLevelXXX:
-      (
-        process.env.SLOPSCROLL_BROWSING_LEVEL_XXX ??
-        String(localConfig.settings?.browsingLevelXXX ?? defaultConfig.settings.browsingLevelXXX)
-      ).toLowerCase() === "true",
-    feedSort: toFeedSort(process.env.SLOPSCROLL_FEED_SORT, localConfig.settings?.feedSort ?? defaultConfig.settings.feedSort),
-    feedPeriod: toFeedPeriod(process.env.SLOPSCROLL_FEED_PERIOD, localConfig.settings?.feedPeriod ?? defaultConfig.settings.feedPeriod),
-    feedMode: toFeedMode(
-      process.env.SLOPSCROLL_FEED_MODE,
-      localConfig.settings?.feedMode ?? (inferredLegacyFeedMode as FeedMode)
-    ),
-    offlineFeedOrder: toOfflineFeedOrder(
-      process.env.SLOPSCROLL_OFFLINE_FEED_ORDER,
-      localConfig.settings?.offlineFeedOrder ?? defaultConfig.settings.offlineFeedOrder
-    )
+      (process.env.SLOPSCROLL_BROWSING_LEVEL_XXX ?? String(defaultConfig.settings.browsingLevelXXX)).toLowerCase() === "true",
+    feedSort: toFeedSort(process.env.SLOPSCROLL_FEED_SORT, defaultConfig.settings.feedSort),
+    feedPeriod: toFeedPeriod(process.env.SLOPSCROLL_FEED_PERIOD, defaultConfig.settings.feedPeriod),
+    feedMode: toFeedMode(process.env.SLOPSCROLL_FEED_MODE, inferredLegacyFeedMode as FeedMode),
+    offlineFeedOrder: toOfflineFeedOrder(process.env.SLOPSCROLL_OFFLINE_FEED_ORDER, defaultConfig.settings.offlineFeedOrder)
   };
   settings.audioPlaybackRate = Math.max(0.5, Math.min(2, settings.audioPlaybackRate));
 
   const civitai = {
-    validatePath: process.env.SLOPSCROLL_CIVITAI_VALIDATE_PATH ?? localConfig.civitai?.validatePath ?? defaultConfig.civitai.validatePath,
-    requestTimeoutMs: toInt(process.env.SLOPSCROLL_REQUEST_TIMEOUT_MS, localConfig.civitai?.requestTimeoutMs ?? defaultConfig.civitai.requestTimeoutMs),
-    downloadTimeoutMs: toInt(process.env.SLOPSCROLL_DOWNLOAD_TIMEOUT_MS, localConfig.civitai?.downloadTimeoutMs ?? defaultConfig.civitai.downloadTimeoutMs),
-    maxDownloadRetries: toInt(process.env.SLOPSCROLL_DOWNLOAD_RETRIES, localConfig.civitai?.maxDownloadRetries ?? defaultConfig.civitai.maxDownloadRetries),
+    validatePath: process.env.SLOPSCROLL_CIVITAI_VALIDATE_PATH ?? defaultConfig.civitai.validatePath,
+    requestTimeoutMs: toInt(process.env.SLOPSCROLL_REQUEST_TIMEOUT_MS, defaultConfig.civitai.requestTimeoutMs),
+    downloadTimeoutMs: toInt(process.env.SLOPSCROLL_DOWNLOAD_TIMEOUT_MS, defaultConfig.civitai.downloadTimeoutMs),
+    maxDownloadRetries: toInt(process.env.SLOPSCROLL_DOWNLOAD_RETRIES, defaultConfig.civitai.maxDownloadRetries),
     prefetchConcurrency: Math.max(
       1,
-      toInt(process.env.SLOPSCROLL_PREFETCH_CONCURRENCY, localConfig.civitai?.prefetchConcurrency ?? defaultConfig.civitai.prefetchConcurrency)
+      toInt(process.env.SLOPSCROLL_PREFETCH_CONCURRENCY, defaultConfig.civitai.prefetchConcurrency)
     )
   };
 

@@ -3,11 +3,10 @@
 ## Setup
 
 1. `npm install`
-2. `cp config/local.example.json config/local.json` (optional)
-3. `npm run parse-har -- /path/to/civitai.har` (needed for online mode)
-4. `npm run dev`
-5. Open `http://localhost:3579`
-6. Paste full browser `Cookie` header in UI
+2. `npm run parse-har -- /path/to/civitai.har` (needed for online mode)
+3. `npm run dev`
+4. Open `http://localhost:3579`
+5. Paste full browser `Cookie` header in UI
 
 ## Docker Operation
 
@@ -21,7 +20,9 @@ Stop:
 
 Notes:
 - Service health is based on `GET /api/health`.
-- Persistent state is host-mounted from `./data` (`images`, `videos`, `sounds`, `session`).
+- Compose reads override values from `.env` (`APP_HOST`, `APP_PORT`, `DATA_DIR`, `DATA_IMAGES_DIR`, `DATA_VIDEOS_DIR`).
+- Persistent mutable state is host-mounted from `${DATA_DIR}` (includes `images`, `videos`, `sounds`, `session`, DB/spec files).
+- `DATA_IMAGES_DIR` and `DATA_VIDEOS_DIR` can optionally override only those two subpaths.
 
 ## Daily Operation
 

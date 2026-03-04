@@ -2,7 +2,9 @@
 .gitignore
 node_modules
 dist
-data
+data/*
+!data/sounds/
+!data/sounds/**
 docs
 *.log
 .DS_Store

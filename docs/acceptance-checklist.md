@@ -76,4 +76,5 @@
 
 - [ ] `docker compose up -d --build` succeeds.
 - [ ] Service transitions to `healthy` via healthcheck.
-- [ ] Host `./data` bind mounts are used for images/videos/sounds/session persistence.
+- [ ] Host `${DATA_DIR}` bind mount is used for persistence (images/videos/sounds/session + DB/spec).
+- [ ] Optional `${DATA_IMAGES_DIR}` / `${DATA_VIDEOS_DIR}` overrides work when set.

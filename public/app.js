@@ -23,15 +23,15 @@
     audioEnabled: false,
     audioAutoSwitchEnabled: true,
     audioSwitchOnVideoChangeEnabled: true,
-    audioMinSwitchSec: 15,
-    audioMaxSwitchSec: 45,
-    audioCrossfadeSec: 2,
+    audioMinSwitchSec: 5,
+    audioMaxSwitchSec: 30,
+    audioCrossfadeSec: 1,
     audioPlaybackRate: 1,
-    panicShortcutEnabled: false,
+    panicShortcutEnabled: true,
     panicActive: false,
     browsingLevelR: false,
-    browsingLevelX: true,
-    browsingLevelXXX: true,
+    browsingLevelX: false,
+    browsingLevelXXX: false,
     feedSort: "Newest",
     feedPeriod: "Week",
     feedMode: "online",
@@ -995,9 +995,9 @@
     }
     state.audioAutoSwitchEnabled = settings.audioAutoSwitchEnabled !== false;
     state.audioSwitchOnVideoChangeEnabled = settings.audioSwitchOnVideoChangeEnabled !== false;
-    state.audioMinSwitchSec = normalizeAudioSwitchSec(settings.audioMinSwitchSec, 15);
-    state.audioMaxSwitchSec = normalizeAudioSwitchSec(settings.audioMaxSwitchSec, 45);
-    state.audioCrossfadeSec = normalizeAudioCrossfadeSec(settings.audioCrossfadeSec, 2);
+    state.audioMinSwitchSec = normalizeAudioSwitchSec(settings.audioMinSwitchSec, 5);
+    state.audioMaxSwitchSec = normalizeAudioSwitchSec(settings.audioMaxSwitchSec, 30);
+    state.audioCrossfadeSec = normalizeAudioCrossfadeSec(settings.audioCrossfadeSec, 1);
     state.audioPlaybackRate = normalizeAudioPlaybackRate(settings.audioPlaybackRate, 1);
     state.panicShortcutEnabled = Boolean(settings.panicShortcutEnabled);
     state.browsingLevelR = Boolean(settings.browsingLevelR);
