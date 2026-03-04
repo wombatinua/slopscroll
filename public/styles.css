@@ -79,14 +79,14 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 163, 131, 0.55);
-  color: #ffd8c9;
-  background: rgba(52, 20, 13, 0.78);
+  border: 1px solid rgba(255, 119, 180, 0.34);
+  color: rgba(255, 227, 242, 0.9);
+  background: transparent;
   font-size: 9px;
   letter-spacing: 0.08em;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .brand {

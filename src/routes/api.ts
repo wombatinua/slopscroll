@@ -26,6 +26,30 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+function parseBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") {
+      return true;
+    }
+    if (normalized === "false") {
+      return false;
+    }
+  }
+  if (typeof value === "number") {
+    if (value === 1) {
+      return true;
+    }
+    if (value === 0) {
+      return false;
+    }
+  }
+  return fallback;
+}
+
 const FEED_SORT_VALUES: FeedSort[] = ["Most Reactions", "Most Comments", "Most Collected", "Newest", "Oldest"];
 const FEED_PERIOD_VALUES: FeedPeriod[] = ["Day", "Week", "Month", "Year", "AllTime"];
 const FEED_MODE_VALUES: FeedMode[] = ["online", "offline_video", "offline_image"];
@@ -452,10 +476,15 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
     };
   }>("/api/settings", async (req, reply) => {
     const existing = deps.db.getSettings(deps.config.settings);
+    const requestedPrefetchDepth = Number(req.body?.prefetchDepth ?? existing.prefetchDepth);
     const requestedAudioMin = Number(req.body?.audioMinSwitchSec ?? existing.audioMinSwitchSec);
     const requestedAudioMax = Number(req.body?.audioMaxSwitchSec ?? existing.audioMaxSwitchSec);
     const requestedAudioCrossfade = Number(req.body?.audioCrossfadeSec ?? existing.audioCrossfadeSec);
     const requestedAudioPlaybackRate = Number(req.body?.audioPlaybackRate ?? existing.audioPlaybackRate);
+    if (!Number.isFinite(requestedPrefetchDepth)) {
+      reply.code(400);
+      return { ok: false, error: "prefetchDepth must be a number" };
+    }
     const audioMinSwitchSec = clamp(Math.trunc(requestedAudioMin), 1, 3600);
     const audioMaxSwitchSec = clamp(Math.trunc(requestedAudioMax), 1, 3600);
     const normalizedAudioMin = Math.min(audioMinSwitchSec, audioMaxSwitchSec);
@@ -471,21 +500,22 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
     );
 
     const next = {
-      prefetchDepth: clamp(Number(req.body?.prefetchDepth ?? existing.prefetchDepth), 0, 10),
+      prefetchDepth: clamp(Math.trunc(requestedPrefetchDepth), 0, 10),
       lowDiskWarnGb: Math.max(0, Number(req.body?.lowDiskWarnGb ?? existing.lowDiskWarnGb)),
-      audioEnabled: Boolean(req.body?.audioEnabled ?? existing.audioEnabled),
-      audioAutoSwitchEnabled: Boolean(req.body?.audioAutoSwitchEnabled ?? existing.audioAutoSwitchEnabled),
-      audioSwitchOnVideoChangeEnabled: Boolean(
-        req.body?.audioSwitchOnVideoChangeEnabled ?? existing.audioSwitchOnVideoChangeEnabled
+      audioEnabled: parseBoolean(req.body?.audioEnabled, existing.audioEnabled),
+      audioAutoSwitchEnabled: parseBoolean(req.body?.audioAutoSwitchEnabled, existing.audioAutoSwitchEnabled),
+      audioSwitchOnVideoChangeEnabled: parseBoolean(
+        req.body?.audioSwitchOnVideoChangeEnabled,
+        existing.audioSwitchOnVideoChangeEnabled
       ),
       audioMinSwitchSec: normalizedAudioMin,
       audioMaxSwitchSec: normalizedAudioMax,
       audioCrossfadeSec: normalizedAudioCrossfade,
       audioPlaybackRate: normalizedAudioPlaybackRate,
-      panicShortcutEnabled: Boolean(req.body?.panicShortcutEnabled ?? existing.panicShortcutEnabled),
-      browsingLevelR: Boolean(req.body?.browsingLevelR ?? existing.browsingLevelR),
-      browsingLevelX: Boolean(req.body?.browsingLevelX ?? existing.browsingLevelX),
-      browsingLevelXXX: Boolean(req.body?.browsingLevelXXX ?? existing.browsingLevelXXX),
+      panicShortcutEnabled: parseBoolean(req.body?.panicShortcutEnabled, existing.panicShortcutEnabled),
+      browsingLevelR: parseBoolean(req.body?.browsingLevelR, existing.browsingLevelR),
+      browsingLevelX: parseBoolean(req.body?.browsingLevelX, existing.browsingLevelX),
+      browsingLevelXXX: parseBoolean(req.body?.browsingLevelXXX, existing.browsingLevelXXX),
       feedSort: normalizeFeedSort(req.body?.feedSort, existing.feedSort),
       feedPeriod: normalizeFeedPeriod(req.body?.feedPeriod, existing.feedPeriod),
       feedMode: normalizedFeedMode,
@@ -548,7 +578,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
     return {
       ok: true,
       files,
-      mediaDir: deps.config.mediaDir
+      soundsDir: deps.config.soundsDir
     };
   });
 

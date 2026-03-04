@@ -19,12 +19,12 @@ export interface AudioFile {
 }
 
 export class AudioLibraryService {
-  constructor(private readonly mediaDir: string) {
-    ensureDir(this.mediaDir);
+  constructor(private readonly soundsDir: string) {
+    ensureDir(this.soundsDir);
   }
 
   async listLibrary(): Promise<AudioLibraryItem[]> {
-    const entries = await fs.promises.readdir(this.mediaDir, { withFileTypes: true });
+    const entries = await fs.promises.readdir(this.soundsDir, { withFileTypes: true });
     const audioEntries = entries
       .filter((entry) => entry.isFile() && this.isSupportedAudio(entry.name))
       .map((entry) => entry.name)
@@ -32,7 +32,7 @@ export class AudioLibraryService {
 
     const out: AudioLibraryItem[] = [];
     for (const name of audioEntries) {
-      const fullPath = path.join(this.mediaDir, name);
+      const fullPath = path.join(this.soundsDir, name);
       const stat = await fs.promises.stat(fullPath);
       out.push({
         name,
@@ -51,8 +51,8 @@ export class AudioLibraryService {
       return null;
     }
 
-    const fullPath = path.join(this.mediaDir, name);
-    if (!this.isInsideMediaDir(fullPath)) {
+    const fullPath = path.join(this.soundsDir, name);
+    if (!this.isInsideSoundsDir(fullPath)) {
       return null;
     }
 
@@ -95,8 +95,8 @@ export class AudioLibraryService {
     return AUDIO_EXTENSIONS.has(ext);
   }
 
-  private isInsideMediaDir(targetPath: string): boolean {
-    const resolvedRoot = path.resolve(this.mediaDir);
+  private isInsideSoundsDir(targetPath: string): boolean {
+    const resolvedRoot = path.resolve(this.soundsDir);
     const resolvedTarget = path.resolve(targetPath);
     return resolvedTarget === resolvedRoot || resolvedTarget.startsWith(`${resolvedRoot}${path.sep}`);
   }

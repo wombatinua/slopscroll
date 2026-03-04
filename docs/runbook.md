@@ -20,7 +20,7 @@
 - Feed mode selector (`Settings -> Feed mode`) controls source:
   - `Online`: Civitai-backed feed.
   - `Offline Video Mode`: ready cached videos only.
-  - `Offline Image Mode`: local images from `data/cache/images` only.
+  - `Offline Image Mode`: local images from `data/images` only.
 
 ## Troubleshooting
 
@@ -36,7 +36,7 @@
 - Adjust `itemPaths` / `mediaUrlPaths` in `data/civitai-request-spec.json`.
 - Reload spec and retry.
 - If `Offline Video Mode` is enabled, confirm ready cached videos exist (`GET /api/cache/stats`) or switch mode.
-- If `Offline Image Mode` is enabled, confirm files exist under `data/cache/images` and reinitialize feed.
+- If `Offline Image Mode` is enabled, confirm files exist under `data/images` and reinitialize feed.
 - Prefetch depth still applies in both offline modes; `/api/prefetch` runs local-only and does not download.
 
 ### Video playback fails
@@ -66,10 +66,17 @@
 
 - Check `Enable background loop playback` first.
 - Check `Enable automatic random loop switching` for timer-based random changes.
-- Check `Switch loop on video change` for feed-advance-driven loop changes.
+- Check `Switch loop on feed item change` for feed-advance-driven loop changes.
+- Check `Pitch shift` if perceived loop tone/speed is unexpected.
 - If both switch toggles are off, current loop is expected to continue indefinitely.
+
+### Panic mode
+
+- If enabled in settings, pressing `Spacebar` triggers panic overlay immediately.
+- Panic overlay intentionally does not close in-app; use search/URL input to navigate away.
+- Tab title is changed to `New Tab` when panic mode activates.
 
 ### Low disk warning
 
 - Cache never auto-deletes.
-- Increase storage or manually remove files in `data/cache/videos` if desired.
+- Increase storage or manually remove files in `data/videos` if desired.

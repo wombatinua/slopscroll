@@ -19,7 +19,7 @@ async function bootstrap(): Promise<void> {
   const config = loadConfig();
 
   ensureDir(config.dataDir);
-  ensureDir(config.mediaDir);
+  ensureDir(config.soundsDir);
   ensureDir(config.cacheVideosDir);
   ensureDir(config.cacheImagesDir);
   ensureDir(path.dirname(config.sessionPath));
@@ -36,7 +36,7 @@ async function bootstrap(): Promise<void> {
   const feedService = new FeedService(config, db, sessionStore, civitaiClient, imageCatalogService);
   const cacheService = new CacheService(db, config, sessionStore, civitaiClient);
   const prefetchService = new PrefetchService(feedService, cacheService);
-  const audioLibraryService = new AudioLibraryService(config.mediaDir);
+  const audioLibraryService = new AudioLibraryService(config.soundsDir);
 
   const app = Fastify({
     logger: false,
@@ -79,7 +79,7 @@ async function bootstrap(): Promise<void> {
     port: config.port,
     host: config.host,
     staticDir: config.staticDir,
-    mediaDir: config.mediaDir,
+    soundsDir: config.soundsDir,
     hasCookies: sessionExists,
     hasRequestSpec: Boolean(requestSpec)
   });

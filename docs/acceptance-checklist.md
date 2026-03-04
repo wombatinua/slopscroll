@@ -41,6 +41,8 @@
 - [ ] Mode badge appears in header (`OFFLINE VIDEO` or `OFFLINE IMAGE`) when not in online mode.
 - [ ] Both offline modes replace sort/period controls with `Newest / Oldest / Random`.
 - [ ] Offline mode with zero eligible items shows centered empty-state overlay.
+- [ ] Panic mode (`Spacebar`, if enabled) opens Google-like overlay and changes tab title to `New Tab`.
+- [ ] Panic overlay search submit redirects in same tab and supports both search text and direct URL input.
 
 ## Audio Behavior
 
@@ -48,6 +50,7 @@
 - [ ] With audio enabled + switch-on-video-change enabled, loop switches when active video changes.
 - [ ] With audio enabled + both switch toggles disabled, current loop continues indefinitely.
 - [ ] Audio switch toggles and numeric settings become effective immediately after UI change.
+- [ ] Pitch shift setting applies immediately and persists across reloads.
 
 ## Feed Modes
 
@@ -55,7 +58,7 @@
 - [ ] While either offline mode is enabled, no outbound requests to `civitai.com` / `civit.ai` occur during browsing/playback.
 - [ ] `offline_video`: author feed and author totals are computed from local ready cache only.
 - [ ] `offline_video`: `GET /api/video/:id` streams ready cached files and returns `409` for uncached/missing files.
-- [ ] `offline_image`: feed is served from recursive files under `data/cache/images`.
+- [ ] `offline_image`: feed is served from recursive files under `data/images`.
 - [ ] `offline_image`: feed renders images (not videos) with filename + counter.
 - [ ] `offline_image`: author navigation and likes UI are hidden/disabled.
 - [ ] `offline_image`: `/api/feed/author-stats`, likes routes, and `/api/video/:id` return `409`.

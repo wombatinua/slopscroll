@@ -2,6 +2,8 @@
 
 Local single-user cache-first video scroller for Civitai.
 
+Current version: `0.16.0`
+
 ## Stack
 
 - Node.js + TypeScript
@@ -57,12 +59,12 @@ npm run dev
 
 ## Data Layout
 
-- `data/cache/videos/*.webm` - cached media
-- `data/cache/images/**/*` - offline image-mode source files (recursive)
-- `data/slopscroll.db` - SQLite index
+- `data/videos/*.webm` - cached media
+- `data/images/**/*` - offline image-mode source files (recursive)
+- `data/database.db` - SQLite index
 - `data/session/auth.json` - imported cookies
 - `data/civitai-request-spec.json` - feed request spec
-- `media/*` - local audio loop library (`.mp3`, `.wav`, `.ogg`, `.m4a`, `.aac`, `.flac`, `.opus`, `.webm`)
+- `data/sounds/*` - local audio loop library (`.mp3`, `.wav`, `.ogg`, `.m4a`, `.aac`, `.flac`, `.opus`, `.webm`)
 
 ## Notes
 
@@ -77,7 +79,7 @@ npm run dev
 - Feed mode is persisted in settings (`online | offline_video | offline_image`):
   - `online`: normal Civitai-backed video feed.
   - `offline_video`: main/author feeds from ready local cached videos only (no Civitai requests).
-  - `offline_image`: feed from local files under `data/cache/images` only.
+  - `offline_image`: feed from local files under `data/images` only.
   - Top bar badge shows `OFFLINE VIDEO` or `OFFLINE IMAGE` when not in online mode.
   - Bottom-right controls switch to offline order (`Newest / Oldest / Random`) in both offline modes.
   - Empty offline feeds show a centered non-blocking empty-state overlay.
@@ -86,5 +88,11 @@ npm run dev
   - `/api/prefetch` remains available in both offline modes and runs local-only behavior.
 - Audio loop controls include:
   - Toggle: automatic random switching (uses min/max window).
-  - Toggle: switch loop on video change.
+  - Toggle: switch loop on feed item change.
   - Crossfade duration setting (seconds).
+  - Pitch shift control (semitone steps) applied via playback speed.
+- Panic mode:
+  - Optional `Spacebar` panic trigger in settings.
+  - Panic overlay presents a Google-like new-tab search surface.
+  - Tab title switches to `New Tab` while panic overlay is active.
+  - Enter/search redirects in the same tab; input supports both search text and direct URLs.

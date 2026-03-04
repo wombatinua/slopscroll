@@ -256,17 +256,48 @@
     return Boolean(target.closest("[contenteditable='true']"));
   }
 
-  function buildGoogleSearchUrl(queryRaw, lucky = false) {
+  function buildGoogleSearchUrl(queryRaw) {
     const query = String(queryRaw || "").trim();
     if (!query) {
       return "https://www.google.com/";
     }
     const url = new URL("https://www.google.com/search");
     url.searchParams.set("q", query);
-    if (lucky) {
-      url.searchParams.set("btnI", "I");
-    }
     return url.toString();
+  }
+
+  function resolvePanicInputTarget(inputRaw) {
+    const input = String(inputRaw || "").trim();
+    if (!input) {
+      return "https://www.google.com/";
+    }
+
+    if (/\s/.test(input)) {
+      return buildGoogleSearchUrl(input);
+    }
+
+    if (/^[a-z]+:\/\//i.test(input)) {
+      try {
+        const parsed = new URL(input);
+        if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+          return parsed.toString();
+        }
+      } catch {
+        // Fall through to search.
+      }
+      return buildGoogleSearchUrl(input);
+    }
+
+    try {
+      const candidate = new URL(`https://${input}`);
+      if (candidate.hostname.includes(".")) {
+        return candidate.toString();
+      }
+    } catch {
+      // Fall through to search.
+    }
+
+    return buildGoogleSearchUrl(input);
   }
 
   function normalizeFeedSort(value, fallback = "Newest") {
@@ -1303,7 +1334,7 @@
     const shouldShow = isOfflineFeedMode() && !state.feedInitializing && !state.loadingFeed && state.items.length === 0;
     if (shouldShow) {
       if (isOfflineImageMode()) {
-        refs.offlineEmptyTitle.textContent = "No images found in data/cache/images.";
+        refs.offlineEmptyTitle.textContent = "No images found in data/images.";
         refs.offlineEmptySubtitle.textContent = "Add image files and reinitialize feed, or switch mode.";
       } else {
         refs.offlineEmptyTitle.textContent = "No cached videos available offline.";
@@ -1568,8 +1599,8 @@
     });
   }
 
-  function redirectToGoogleSearch(lucky = false) {
-    const targetUrl = buildGoogleSearchUrl(refs.panicSearchInput?.value, lucky);
+  function redirectToGoogleSearch() {
+    const targetUrl = resolvePanicInputTarget(refs.panicSearchInput?.value);
     window.location.assign(targetUrl);
   }
 
@@ -1682,7 +1713,7 @@
       }
 
       if (state.audioLibrary.length === 0) {
-        showToast("No audio loops found in ./media", true);
+        showToast("No audio loops found in ./data/sounds", true);
         return false;
       }
 
@@ -2339,7 +2370,7 @@
     refs.settingsBackdrop.addEventListener("click", () => setSettingsPanelOpen(false));
     refs.panicSearchForm.addEventListener("submit", (event) => {
       event.preventDefault();
-      redirectToGoogleSearch(false);
+      redirectToGoogleSearch();
     });
     refs.btnSortToggle.addEventListener("click", (event) => {
       event.preventDefault();

@@ -5,7 +5,7 @@ import type { CivitaiRequestSpec, FeedMode, FeedPeriod, FeedSort, OfflineFeedOrd
 export interface AppConfig {
   host: string;
   port: number;
-  mediaDir: string;
+  soundsDir: string;
   dataDir: string;
   cacheVideosDir: string;
   cacheImagesDir: string;
@@ -26,6 +26,7 @@ export interface AppConfig {
 interface PartialConfig {
   host?: string;
   port?: number;
+  soundsDir?: string;
   mediaDir?: string;
   dataDir?: string;
   settings?: Partial<Settings>;
@@ -40,7 +41,7 @@ interface PartialConfig {
 
 const ROOT = process.cwd();
 const DEFAULT_DATA_DIR = path.join(ROOT, "data");
-const DEFAULT_MEDIA_DIR = path.join(ROOT, "media");
+const DEFAULT_SOUNDS_DIR = path.join(DEFAULT_DATA_DIR, "sounds");
 const ALLOWED_FEED_SORTS: FeedSort[] = ["Most Reactions", "Most Comments", "Most Collected", "Newest", "Oldest"];
 const ALLOWED_FEED_PERIODS: FeedPeriod[] = ["Day", "Week", "Month", "Year", "AllTime"];
 const ALLOWED_OFFLINE_FEED_ORDERS: OfflineFeedOrder[] = ["Newest", "Oldest", "Random"];
@@ -49,11 +50,11 @@ const ALLOWED_FEED_MODES: FeedMode[] = ["online", "offline_video", "offline_imag
 export const defaultConfig: AppConfig = {
   host: "0.0.0.0",
   port: 3579,
-  mediaDir: DEFAULT_MEDIA_DIR,
+  soundsDir: DEFAULT_SOUNDS_DIR,
   dataDir: DEFAULT_DATA_DIR,
-  cacheVideosDir: path.join(DEFAULT_DATA_DIR, "cache", "videos"),
-  cacheImagesDir: path.join(DEFAULT_DATA_DIR, "cache", "images"),
-  dbPath: path.join(DEFAULT_DATA_DIR, "slopscroll.db"),
+  cacheVideosDir: path.join(DEFAULT_DATA_DIR, "videos"),
+  cacheImagesDir: path.join(DEFAULT_DATA_DIR, "images"),
+  dbPath: path.join(DEFAULT_DATA_DIR, "database.db"),
   sessionPath: path.join(DEFAULT_DATA_DIR, "session", "auth.json"),
   requestSpecPath: path.join(DEFAULT_DATA_DIR, "civitai-request-spec.json"),
   staticDir: path.join(ROOT, "public"),
@@ -160,8 +161,13 @@ export function loadConfig(): AppConfig {
 
   const host = process.env.SLOPSCROLL_HOST ?? localConfig.host ?? defaultConfig.host;
   const port = toInt(process.env.SLOPSCROLL_PORT, localConfig.port ?? defaultConfig.port);
-  const mediaDir = process.env.SLOPSCROLL_MEDIA_DIR ?? localConfig.mediaDir ?? defaultConfig.mediaDir;
   const dataDir = process.env.SLOPSCROLL_DATA_DIR ?? localConfig.dataDir ?? defaultConfig.dataDir;
+  const soundsDir =
+    process.env.SLOPSCROLL_SOUNDS_DIR ??
+    process.env.SLOPSCROLL_MEDIA_DIR ??
+    localConfig.soundsDir ??
+    localConfig.mediaDir ??
+    path.join(dataDir, "sounds");
 
   const settings: Settings = {
     prefetchDepth: toInt(process.env.SLOPSCROLL_PREFETCH_DEPTH, localConfig.settings?.prefetchDepth ?? defaultConfig.settings.prefetchDepth),
@@ -238,11 +244,11 @@ export function loadConfig(): AppConfig {
   return {
     host,
     port,
-    mediaDir,
+    soundsDir,
     dataDir,
-    cacheVideosDir: path.join(dataDir, "cache", "videos"),
-    cacheImagesDir: path.join(dataDir, "cache", "images"),
-    dbPath: path.join(dataDir, "slopscroll.db"),
+    cacheVideosDir: path.join(dataDir, "videos"),
+    cacheImagesDir: path.join(dataDir, "images"),
+    dbPath: path.join(dataDir, "database.db"),
     sessionPath: path.join(dataDir, "session", "auth.json"),
     requestSpecPath: path.join(dataDir, "civitai-request-spec.json"),
     staticDir: defaultConfig.staticDir,
