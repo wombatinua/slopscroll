@@ -31,6 +31,8 @@
     browsingLevelXXX: true,
     feedSort: "Newest",
     feedPeriod: "Week",
+    offlineModeEnabled: false,
+    offlineFeedOrder: "Newest",
     sortMenuOpen: false,
     periodMenuOpen: false,
     audioLibrary: [],
@@ -52,7 +54,8 @@
     mainFeedSnapshot: null,
     restoringMainFeed: false,
     likedUsers: new Set(),
-    likedUsersListOpen: false
+    likedUsersListOpen: false,
+    likedUsersLastUpdatedAt: null
   };
 
   const refs = {
@@ -62,6 +65,7 @@
     authState: document.getElementById("auth-state"),
     cookieInput: document.getElementById("cookie-input"),
     prefetchDepth: document.getElementById("prefetch-depth"),
+    offlineModeEnabled: document.getElementById("offline-mode-enabled"),
     audioEnabled: document.getElementById("audio-enabled"),
     audioAutoSwitchEnabled: document.getElementById("audio-auto-switch-enabled"),
     audioSwitchOnVideoChangeEnabled: document.getElementById("audio-switch-on-video-change-enabled"),
@@ -82,6 +86,7 @@
     stats: document.getElementById("stats-output"),
     tpl: document.getElementById("video-card-template"),
     navHome: document.getElementById("nav-home"),
+    offlineBadge: document.getElementById("offline-badge"),
     feedNav: document.getElementById("feed-nav"),
     navBackMain: document.getElementById("nav-back-main"),
     navAuthor: document.getElementById("nav-author"),
@@ -100,11 +105,13 @@
     periodControl: document.getElementById("period-control"),
     btnPeriodToggle: document.getElementById("btn-period-toggle"),
     periodMenu: document.getElementById("period-menu"),
+    offlineOrderControl: document.getElementById("offline-order-control"),
     btnShowLikedUsers: document.getElementById("btn-show-liked-users"),
     likedUsersList: document.getElementById("liked-users-list"),
     fixedMeta: document.getElementById("fixed-meta"),
     fixedMetaMain: document.getElementById("fixed-meta-main"),
-    fixedMetaSub: document.getElementById("fixed-meta-sub")
+    fixedMetaSub: document.getElementById("fixed-meta-sub"),
+    overlayOfflineEmpty: document.getElementById("overlay-offline-empty")
   };
 
   const observer = new IntersectionObserver(onIntersect, {
@@ -112,6 +119,7 @@
   });
   const FEED_SORT_OPTIONS = ["Most Reactions", "Most Comments", "Most Collected", "Newest", "Oldest"];
   const FEED_PERIOD_OPTIONS = ["Day", "Week", "Month", "Year", "AllTime"];
+  const OFFLINE_FEED_ORDER_OPTIONS = ["Newest", "Oldest", "Random"];
   const VIDEO_KEEP_BEHIND = 10;
   const VIDEO_KEEP_AHEAD = 2;
 
@@ -152,6 +160,7 @@
   function setFeedInitializing(initializing) {
     state.feedInitializing = Boolean(initializing);
     syncFeedLoadingOverlay();
+    updateOfflineEmptyState();
   }
 
   function setActiveVideoLoading(loading) {
@@ -160,13 +169,15 @@
   }
 
   function setAuthPill(isValid, reason) {
-    refs.authState.textContent = isValid ? "valid" : `invalid${reason ? `: ${reason}` : ""}`;
-    refs.authState.classList.toggle("ok", isValid);
-    refs.authState.classList.toggle("bad", !isValid);
-    refs.overlayAuth.classList.toggle("hidden", isValid);
-    state.authValid = isValid;
+    const effectiveValid = Boolean(isValid) || state.offlineModeEnabled;
+    const label = state.offlineModeEnabled && effectiveValid ? "valid (offline)" : isValid ? "valid" : `invalid${reason ? `: ${reason}` : ""}`;
+    refs.authState.textContent = label;
+    refs.authState.classList.toggle("ok", effectiveValid);
+    refs.authState.classList.toggle("bad", !effectiveValid);
+    refs.overlayAuth.classList.toggle("hidden", effectiveValid);
+    state.authValid = effectiveValid;
 
-    if (!isValid) {
+    if (!effectiveValid) {
       stopAutoAdvanceTimer();
     } else {
       scheduleAutoAdvance();
@@ -221,6 +232,14 @@
       .trim()
       .toLowerCase();
     const match = FEED_PERIOD_OPTIONS.find((candidate) => candidate.toLowerCase() === normalized);
+    return match || fallback;
+  }
+
+  function normalizeOfflineFeedOrder(value, fallback = "Newest") {
+    const normalized = String(value || "")
+      .trim()
+      .toLowerCase();
+    const match = OFFLINE_FEED_ORDER_OPTIONS.find((candidate) => candidate.toLowerCase() === normalized);
     return match || fallback;
   }
 
@@ -288,12 +307,10 @@
 
   function renderLikedUsersList() {
     refs.likedUsersList.innerHTML = "";
-
     if (!state.likedUsersListOpen) {
       refs.likedUsersList.classList.add("hidden");
       return;
     }
-
     refs.likedUsersList.classList.remove("hidden");
     const users = Array.from(state.likedUsers).sort((a, b) => a.localeCompare(b));
     if (users.length === 0) {
@@ -304,16 +321,28 @@
       return;
     }
 
+    const group = document.createElement("div");
+    group.className = "liked-users-group";
+
     for (const username of users) {
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "liked-user-item";
+      btn.className = "liked-user-tag";
       btn.textContent = `@${username}`;
       btn.addEventListener("click", () => {
         setSettingsPanelOpen(false);
         void switchToAuthor(username);
       });
-      refs.likedUsersList.appendChild(btn);
+      group.appendChild(btn);
+    }
+
+    refs.likedUsersList.appendChild(group);
+
+    if (state.likedUsersLastUpdatedAt) {
+      const updated = document.createElement("div");
+      updated.className = "muted-note";
+      updated.textContent = `Updated: ${new Date(state.likedUsersLastUpdatedAt).toLocaleTimeString()}`;
+      refs.likedUsersList.appendChild(updated);
     }
   }
 
@@ -329,6 +358,7 @@
       }
     }
     state.likedUsers = next;
+    state.likedUsersLastUpdatedAt = Date.now();
     renderLikedUsersList();
   }
 
@@ -353,9 +383,8 @@
         state.likedUsers.delete(username);
       }
       setHeartButtonState(refs.btnLikeAuthor, result.liked, "user");
-      if (state.likedUsersListOpen) {
-        renderLikedUsersList();
-      }
+      state.likedUsersLastUpdatedAt = Date.now();
+      renderLikedUsersList();
     } catch (err) {
       showToast(`User like error: ${err.message}`, true);
     }
@@ -428,9 +457,12 @@
     }
   }
 
-  function getSelectedAuthorTotalLabel() {
+  function getSelectedAuthorTotalLabel(currentIndex = state.activeIndex) {
     if (Number.isInteger(state.selectedAuthorTotal)) {
-      return state.selectedAuthorTotalComplete ? String(state.selectedAuthorTotal) : `${state.selectedAuthorTotal}+`;
+      const minFromIndex = Number.isInteger(currentIndex) && currentIndex >= 0 ? currentIndex + 1 : 0;
+      const minFromLoadedItems = state.items.length > 0 ? state.items.length : 0;
+      const normalizedTotal = Math.max(state.selectedAuthorTotal, minFromIndex, minFromLoadedItems);
+      return state.selectedAuthorTotalComplete ? String(normalizedTotal) : `${normalizedTotal}+`;
     }
     return "...";
   }
@@ -667,8 +699,12 @@
     if (!state.authValid || state.loadingFeed) {
       return;
     }
+    if (state.items.length > 0 && !state.nextCursor) {
+      return;
+    }
 
     state.loadingFeed = true;
+    updateOfflineEmptyState();
     try {
       const cursorQuery = state.nextCursor ? `&cursor=${encodeURIComponent(state.nextCursor)}` : "";
       const authorQuery = state.selectedAuthor ? `&author=${encodeURIComponent(state.selectedAuthor)}` : "";
@@ -685,7 +721,10 @@
 
       state.nextCursor = result.nextCursor;
       if (result.items.length === 0) {
-        if (state.selectedAuthor) {
+        const stillEmpty = state.items.length === 0 && start === 0;
+        if (state.offlineModeEnabled && stillEmpty) {
+          // Empty offline feeds are shown via persistent overlay.
+        } else if (state.selectedAuthor) {
           showToast(`No additional videos for @${state.selectedAuthor}`);
         } else {
           showToast("No additional feed items");
@@ -700,6 +739,7 @@
       showToast(msg, true);
     } finally {
       state.loadingFeed = false;
+      updateOfflineEmptyState();
       void refreshStats();
     }
   }
@@ -718,6 +758,8 @@
     state.browsingLevelXXX = Boolean(settings.browsingLevelXXX);
     state.feedSort = normalizeFeedSort(settings.feedSort, "Newest");
     state.feedPeriod = normalizeFeedPeriod(settings.feedPeriod, "Week");
+    state.offlineModeEnabled = Boolean(settings.offlineModeEnabled);
+    state.offlineFeedOrder = normalizeOfflineFeedOrder(settings.offlineFeedOrder, "Newest");
     if (state.audioMaxSwitchSec < state.audioMinSwitchSec) {
       const tmp = state.audioMinSwitchSec;
       state.audioMinSwitchSec = state.audioMaxSwitchSec;
@@ -729,12 +771,17 @@
     refs.audioMinSwitchSec.value = String(state.audioMinSwitchSec);
     refs.audioMaxSwitchSec.value = String(state.audioMaxSwitchSec);
     refs.audioCrossfadeSec.value = String(state.audioCrossfadeSec);
+    refs.offlineModeEnabled.checked = state.offlineModeEnabled;
     refs.browsingLevelR.checked = state.browsingLevelR;
     refs.browsingLevelX.checked = state.browsingLevelX;
     refs.browsingLevelXXX.checked = state.browsingLevelXXX;
     syncAudioControls();
     syncSortControl();
     syncPeriodControl();
+    syncOfflineBadge();
+    syncFeedFilterControls();
+    setAuthPill(state.authValid, null);
+    updateOfflineEmptyState();
   }
 
   async function loadSettings() {
@@ -748,13 +795,17 @@
 
   async function persistSettingsPatch(patch, options = {}) {
     const shouldReloadFeed = Boolean(options.reloadFeed);
+    const shouldRecheckAuth = Boolean(options.recheckAuth);
     try {
       const result = await api("/api/settings", {
         method: "PUT",
         body: JSON.stringify(patch)
       });
       applySettingsSnapshot(result.settings);
-      if (shouldReloadFeed && state.authValid) {
+      if (shouldRecheckAuth) {
+        await checkAuth();
+      }
+      if (shouldReloadFeed) {
         await resetFeedAndLoad();
         if (state.selectedAuthor) {
           void refreshAuthorTotal(state.selectedAuthor);
@@ -938,6 +989,39 @@
     refs.btnPeriodToggle.setAttribute("aria-expanded", next ? "true" : "false");
   }
 
+  function syncOfflineBadge() {
+    refs.offlineBadge.classList.toggle("hidden", !state.offlineModeEnabled);
+  }
+
+  function syncOfflineOrderControl() {
+    const current = normalizeOfflineFeedOrder(state.offlineFeedOrder, "Newest");
+    state.offlineFeedOrder = current;
+    const items = refs.offlineOrderControl.querySelectorAll(".offline-order-btn");
+    items.forEach((node) => {
+      const option = normalizeOfflineFeedOrder(node.dataset.offlineOrder, "Newest");
+      const active = option === current;
+      node.classList.toggle("active", active);
+      node.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+  }
+
+  function syncFeedFilterControls() {
+    const offline = Boolean(state.offlineModeEnabled);
+    refs.sortControl.classList.toggle("hidden", offline);
+    refs.periodControl.classList.toggle("hidden", offline);
+    refs.offlineOrderControl.classList.toggle("hidden", !offline);
+    if (offline) {
+      setSortMenuOpen(false);
+      setPeriodMenuOpen(false);
+    }
+    syncOfflineOrderControl();
+  }
+
+  function updateOfflineEmptyState() {
+    const shouldShow = state.offlineModeEnabled && !state.feedInitializing && !state.loadingFeed && state.items.length === 0;
+    refs.overlayOfflineEmpty.classList.toggle("hidden", !shouldShow);
+  }
+
   async function applyFeedSort(nextSortRaw) {
     const nextSort = normalizeFeedSort(nextSortRaw, state.feedSort);
     if (nextSort === state.feedSort) {
@@ -993,6 +1077,25 @@
       showToast(`Period: ${state.feedPeriod === "AllTime" ? "All Time" : state.feedPeriod}`);
     } catch (err) {
       showToast(`Period update failed: ${err.message}`, true);
+    }
+  }
+
+  async function applyOfflineFeedOrder(nextOrderRaw) {
+    const nextOrder = normalizeOfflineFeedOrder(nextOrderRaw, state.offlineFeedOrder);
+    if (nextOrder === state.offlineFeedOrder) {
+      return;
+    }
+
+    state.offlineFeedOrder = nextOrder;
+    syncOfflineOrderControl();
+    const saved = await persistSettingsPatch(
+      {
+        offlineFeedOrder: nextOrder
+      },
+      { reloadFeed: true }
+    );
+    if (saved) {
+      showToast(`Offline order: ${state.offlineFeedOrder}`);
     }
   }
 
@@ -1353,7 +1456,7 @@
     refs.btnToggleSettings.setAttribute("aria-expanded", next ? "true" : "false");
     if (!next && state.likedUsersListOpen) {
       state.likedUsersListOpen = false;
-      refs.btnShowLikedUsers.textContent = "Liked Users";
+      refs.btnShowLikedUsers.textContent = "Liked Feeds";
       renderLikedUsersList();
     }
   }
@@ -1365,18 +1468,20 @@
   async function toggleLikedUsersList() {
     state.likedUsersListOpen = !state.likedUsersListOpen;
     if (state.likedUsersListOpen) {
-      refs.btnShowLikedUsers.textContent = "Hide Liked Users";
+      refs.btnShowLikedUsers.textContent = "Hide Liked Feeds";
       try {
         await loadLikedUsers();
       } catch (err) {
-        showToast(`Liked users load failed: ${err.message}`, true);
+        showToast(`Liked feeds load failed: ${err.message}`, true);
         state.likedUsersListOpen = false;
-        refs.btnShowLikedUsers.textContent = "Liked Users";
+        refs.btnShowLikedUsers.textContent = "Liked Feeds";
+        renderLikedUsersList();
       }
-    } else {
-      refs.btnShowLikedUsers.textContent = "Liked Users";
-      renderLikedUsersList();
+      return;
     }
+
+    refs.btnShowLikedUsers.textContent = "Liked Feeds";
+    renderLikedUsersList();
   }
 
   function detectIosLike() {
@@ -1855,12 +1960,21 @@
       event.stopPropagation();
       void applyFeedPeriod(target.dataset.period);
     });
+    refs.offlineOrderControl.addEventListener("click", (event) => {
+      const target = event.target?.closest?.(".offline-order-btn");
+      if (!target) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      void applyOfflineFeedOrder(target.dataset.offlineOrder);
+    });
+    refs.btnShowLikedUsers.addEventListener("click", () => void toggleLikedUsersList());
     refs.btnLikeAuthor.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
       void toggleSelectedAuthorLike();
     });
-    refs.btnShowLikedUsers.addEventListener("click", () => void toggleLikedUsersList());
     document.addEventListener("fullscreenchange", () => {
       if (document.fullscreenElement) {
         state.pseudoFullscreenActive = false;
@@ -1884,6 +1998,23 @@
       const nextWarn = Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
       refs.diskWarn.value = String(nextWarn);
       void persistSettingsPatch({ lowDiskWarnGb: nextWarn });
+    });
+    refs.offlineModeEnabled.addEventListener("change", () => {
+      state.offlineModeEnabled = refs.offlineModeEnabled.checked;
+      syncOfflineBadge();
+      syncFeedFilterControls();
+      setAuthPill(state.authValid, null);
+      updateOfflineEmptyState();
+      void persistSettingsPatch(
+        {
+          offlineModeEnabled: state.offlineModeEnabled
+        },
+        { reloadFeed: true, recheckAuth: true }
+      ).then((saved) => {
+        if (saved) {
+          showToast(state.offlineModeEnabled ? "Offline mode enabled" : "Offline mode disabled");
+        }
+      });
     });
     refs.audioEnabled.addEventListener("change", () => {
       const nextEnabled = refs.audioEnabled.checked;
@@ -2026,6 +2157,8 @@
     syncAudioControls();
     syncSortControl();
     syncPeriodControl();
+    syncOfflineBadge();
+    syncFeedFilterControls();
     setFullscreenUi(Boolean(document.fullscreenElement));
     setSettingsPanelOpen(false);
     updateFeedModeUi();

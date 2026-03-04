@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { ensureParentDir } from "./utils/fs";
-import type { CacheEntry, FeedPeriod, FeedSort, Settings, VideoRecord } from "./types";
+import type { CacheEntry, FeedPeriod, FeedSort, OfflineFeedOrder, Settings, VideoRecord } from "./types";
 
 export interface CacheStats {
   totalVideos: number;
@@ -18,6 +18,7 @@ const METRIC_KEYS = ["cache_hits", "cache_misses", "download_failures", "auth_fa
 type MetricKey = (typeof METRIC_KEYS)[number];
 const FEED_SORT_VALUES: FeedSort[] = ["Most Reactions", "Most Comments", "Most Collected", "Newest", "Oldest"];
 const FEED_PERIOD_VALUES: FeedPeriod[] = ["Day", "Week", "Month", "Year", "AllTime"];
+const OFFLINE_FEED_ORDER_VALUES: OfflineFeedOrder[] = ["Newest", "Oldest", "Random"];
 
 function normalizeFeedSort(value: string | undefined, fallback: FeedSort): FeedSort {
   if (!value) {
@@ -34,6 +35,15 @@ function normalizeFeedPeriod(value: string | undefined, fallback: FeedPeriod): F
   }
   const normalized = value.trim().toLowerCase();
   const match = FEED_PERIOD_VALUES.find((candidate) => candidate.toLowerCase() === normalized);
+  return match ?? fallback;
+}
+
+function normalizeOfflineFeedOrder(value: string | undefined, fallback: OfflineFeedOrder): OfflineFeedOrder {
+  if (!value) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  const match = OFFLINE_FEED_ORDER_VALUES.find((candidate) => candidate.toLowerCase() === normalized);
   return match ?? fallback;
 }
 
@@ -331,6 +341,11 @@ export class AppDb {
     }
   }
 
+  private normalizeAuthor(author?: string | null): string | null {
+    const value = (author ?? "").trim().toLowerCase();
+    return value || null;
+  }
+
   close(): void {
     this.db.close();
   }
@@ -384,6 +399,160 @@ export class AppDb {
       author: row.author ?? undefined,
       liked: row.liked === 1
     };
+  }
+
+  listOfflineFeedRows(options: {
+    offset: number;
+    limit: number;
+    author?: string | null;
+    order: "Newest" | "Oldest";
+  }): Array<{ video: VideoRecord; localPath: string; cacheRowId: number }> {
+    const offset = Math.max(0, Math.trunc(options.offset));
+    const limit = Math.max(1, Math.trunc(options.limit));
+    const normalizedAuthor = this.normalizeAuthor(options.author);
+    const orderBy = options.order === "Oldest" ? "cache_entries.rowid ASC" : "cache_entries.rowid DESC";
+    const authorClause = normalizedAuthor ? "AND LOWER(TRIM(COALESCE(videos.author, ''))) = ?" : "";
+    const params: Array<string | number> = [];
+    if (normalizedAuthor) {
+      params.push(normalizedAuthor);
+    }
+    params.push(limit, offset);
+
+    const rows = this.db
+      .prepare(
+        `
+        SELECT
+          videos.id AS id,
+          videos.media_url AS media_url,
+          videos.page_url AS page_url,
+          videos.author AS author,
+          videos.liked AS liked,
+          cache_entries.local_path AS local_path,
+          cache_entries.rowid AS cache_rowid
+        FROM cache_entries
+        INNER JOIN videos ON videos.id = cache_entries.video_id
+        WHERE cache_entries.status = 'ready'
+          ${authorClause}
+        ORDER BY ${orderBy}
+        LIMIT ?
+        OFFSET ?
+      `
+      )
+      .all(...params) as Array<{
+      id: string;
+      media_url: string;
+      page_url: string;
+      author: string | null;
+      liked: number;
+      local_path: string;
+      cache_rowid: number;
+    }>;
+
+    return rows.map((row) => ({
+      video: {
+        id: row.id,
+        mediaUrl: row.media_url,
+        pageUrl: row.page_url,
+        author: row.author ?? undefined,
+        liked: row.liked === 1
+      },
+      localPath: row.local_path,
+      cacheRowId: row.cache_rowid
+    }));
+  }
+
+  listOfflineReadyEntries(author?: string | null): Array<{ videoId: string; localPath: string }> {
+    const normalizedAuthor = this.normalizeAuthor(author);
+    const authorClause = normalizedAuthor ? "AND LOWER(TRIM(COALESCE(videos.author, ''))) = ?" : "";
+    const params: Array<string> = [];
+    if (normalizedAuthor) {
+      params.push(normalizedAuthor);
+    }
+
+    const rows = this.db
+      .prepare(
+        `
+        SELECT
+          cache_entries.video_id AS video_id,
+          cache_entries.local_path AS local_path
+        FROM cache_entries
+        INNER JOIN videos ON videos.id = cache_entries.video_id
+        WHERE cache_entries.status = 'ready'
+          ${authorClause}
+        ORDER BY cache_entries.rowid DESC
+      `
+      )
+      .all(...params) as Array<{ video_id: string; local_path: string }>;
+
+    return rows.map((row) => ({
+      videoId: row.video_id,
+      localPath: row.local_path
+    }));
+  }
+
+  getOfflineVideosByIds(videoIds: string[]): VideoRecord[] {
+    const ids = videoIds.map((value) => value.trim()).filter((value) => value.length > 0);
+    if (ids.length === 0) {
+      return [];
+    }
+
+    const placeholders = ids.map(() => "?").join(", ");
+    const rows = this.db
+      .prepare(
+        `
+        SELECT id, media_url, page_url, author, liked
+        FROM videos
+        WHERE id IN (${placeholders})
+      `
+      )
+      .all(...ids) as Array<{
+      id: string;
+      media_url: string;
+      page_url: string;
+      author: string | null;
+      liked: number;
+    }>;
+
+    const byId = new Map<string, VideoRecord>();
+    for (const row of rows) {
+      byId.set(row.id, {
+        id: row.id,
+        mediaUrl: row.media_url,
+        pageUrl: row.page_url,
+        author: row.author ?? undefined,
+        liked: row.liked === 1
+      });
+    }
+
+    const ordered: VideoRecord[] = [];
+    for (const id of ids) {
+      const video = byId.get(id);
+      if (video) {
+        ordered.push(video);
+      }
+    }
+    return ordered;
+  }
+
+  countOfflineFeedRows(author?: string | null): number {
+    const normalizedAuthor = this.normalizeAuthor(author);
+    const authorClause = normalizedAuthor ? "AND LOWER(TRIM(COALESCE(videos.author, ''))) = ?" : "";
+    const row = this.db
+      .prepare(
+        `
+        SELECT COUNT(*) AS total
+        FROM cache_entries
+        INNER JOIN videos ON videos.id = cache_entries.video_id
+        WHERE cache_entries.status = 'ready'
+          ${authorClause}
+      `
+      )
+      .get(...(normalizedAuthor ? [normalizedAuthor] : [])) as { total: number } | undefined;
+    return row?.total ?? 0;
+  }
+
+  countOfflineAuthorVideos(author: string): number {
+    return this.countOfflineFeedRows(author);
   }
 
   getLikedVideoIds(videoIds: string[]): Set<string> {
@@ -528,7 +697,7 @@ export class AppDb {
   getSettings(defaults: Settings): Settings {
     const rows = this.db
       .prepare(
-        `SELECT key, value FROM settings WHERE key IN ('prefetchDepth', 'lowDiskWarnGb', 'audioEnabled', 'audioAutoSwitchEnabled', 'audioSwitchOnVideoChangeEnabled', 'audioMinSwitchSec', 'audioMaxSwitchSec', 'audioCrossfadeSec', 'browsingLevelR', 'browsingLevelX', 'browsingLevelXXX', 'feedSort', 'feedPeriod')`
+        `SELECT key, value FROM settings WHERE key IN ('prefetchDepth', 'lowDiskWarnGb', 'audioEnabled', 'audioAutoSwitchEnabled', 'audioSwitchOnVideoChangeEnabled', 'audioMinSwitchSec', 'audioMaxSwitchSec', 'audioCrossfadeSec', 'browsingLevelR', 'browsingLevelX', 'browsingLevelXXX', 'feedSort', 'feedPeriod', 'offlineModeEnabled', 'offlineFeedOrder')`
       )
       .all() as Array<{ key: string; value: string }>;
 
@@ -588,6 +757,12 @@ export class AppDb {
       if (row.key === "feedPeriod") {
         output.feedPeriod = normalizeFeedPeriod(row.value, defaults.feedPeriod);
       }
+      if (row.key === "offlineModeEnabled") {
+        output.offlineModeEnabled = row.value.toLowerCase() === "true";
+      }
+      if (row.key === "offlineFeedOrder") {
+        output.offlineFeedOrder = normalizeOfflineFeedOrder(row.value, defaults.offlineFeedOrder);
+      }
     }
     return output;
   }
@@ -614,7 +789,9 @@ export class AppDb {
       ["browsingLevelX", String(settings.browsingLevelX)],
       ["browsingLevelXXX", String(settings.browsingLevelXXX)],
       ["feedSort", settings.feedSort],
-      ["feedPeriod", settings.feedPeriod]
+      ["feedPeriod", settings.feedPeriod],
+      ["offlineModeEnabled", String(settings.offlineModeEnabled)],
+      ["offlineFeedOrder", settings.offlineFeedOrder]
     ]);
 
     this.db.exec("BEGIN;");

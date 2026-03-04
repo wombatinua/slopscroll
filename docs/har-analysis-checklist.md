@@ -1,5 +1,7 @@
 # HAR Analysis Checklist
 
+Use this only for online mode setup/troubleshooting. Offline mode can run from local ready cache without HAR/spec reload.
+
 1. Log in to `https://civitai.com` (or `https://civit.ai`) in your browser (Google login is fine).
 2. Open DevTools -> Network.
 3. Enable **Preserve log**.

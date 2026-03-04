@@ -31,7 +31,7 @@ async function bootstrap(): Promise<void> {
   const sessionStore = new SessionStore(config.sessionPath);
   const requestSpec = loadRequestSpec(config.requestSpecPath);
   const civitaiClient = new CivitaiClient(config, requestSpec);
-  const feedService = new FeedService(db, sessionStore, civitaiClient);
+  const feedService = new FeedService(config, db, sessionStore, civitaiClient);
   const cacheService = new CacheService(db, config, sessionStore, civitaiClient);
   const prefetchService = new PrefetchService(feedService, cacheService);
   const audioLibraryService = new AudioLibraryService(config.mediaDir);

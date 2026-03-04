@@ -34,6 +34,7 @@ export interface AuthState {
 
 export type FeedSort = "Most Reactions" | "Most Comments" | "Most Collected" | "Newest" | "Oldest";
 export type FeedPeriod = "Day" | "Week" | "Month" | "Year" | "AllTime";
+export type OfflineFeedOrder = "Newest" | "Oldest" | "Random";
 
 export interface Settings {
   prefetchDepth: number;
@@ -49,6 +50,8 @@ export interface Settings {
   browsingLevelXXX: boolean;
   feedSort: FeedSort;
   feedPeriod: FeedPeriod;
+  offlineModeEnabled: boolean;
+  offlineFeedOrder: OfflineFeedOrder;
 }
 
 export interface FeedPage {

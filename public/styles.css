@@ -75,6 +75,20 @@ body {
   color: #ffe9f6;
 }
 
+.offline-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 163, 131, 0.55);
+  color: #ffd8c9;
+  background: rgba(52, 20, 13, 0.78);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+
 .brand {
   min-width: 0;
   flex: 1 1 auto;
@@ -510,19 +524,36 @@ label {
   gap: 6px;
 }
 
-.liked-user-item {
+.liked-users-group {
   border: 1px solid rgba(236, 157, 197, 0.3);
   background: rgba(9, 14, 18, 0.7);
-  color: var(--accent);
   border-radius: 8px;
   padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 34px;
+}
+
+.liked-user-tag {
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  border-radius: 0;
+  padding: 0;
   text-align: left;
   text-decoration: underline;
   text-underline-offset: 2px;
+  line-height: 1.1;
+  font-size: 14px;
+  font-weight: 400;
 }
 
-.liked-user-item:hover {
-  background: rgba(255, 119, 180, 0.12);
+.liked-user-tag:hover {
+  background: transparent;
+  color: #ffd3e8;
+  transform: none;
 }
 
 .danger-text {
@@ -665,6 +696,37 @@ label {
   gap: 8px;
 }
 
+.offline-order-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid rgba(236, 157, 197, 0.3);
+  border-radius: 999px;
+  background: rgba(4, 7, 11, 0.62);
+  padding: 4px;
+}
+
+.offline-order-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  font-size: 11px;
+  padding: 5px 9px;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.offline-order-btn:hover {
+  transform: none;
+  background: rgba(255, 119, 180, 0.12);
+  color: var(--text);
+}
+
+.offline-order-btn.active {
+  background: rgba(255, 119, 180, 0.24);
+  color: #ffd3e8;
+}
+
 .sort-toggle-btn {
   border: 1px solid rgba(236, 157, 197, 0.3);
   background: rgba(4, 7, 11, 0.62);
@@ -778,6 +840,19 @@ label {
   background: rgba(20, 14, 14, 0.85);
   padding: 18px;
   pointer-events: auto;
+}
+
+#overlay-offline-empty .overlay-card {
+  pointer-events: none;
+}
+
+#overlay-offline-empty {
+  z-index: 26;
+  pointer-events: none;
+}
+
+#overlay-offline-empty * {
+  pointer-events: none;
 }
 
 .overlay-card h3 {

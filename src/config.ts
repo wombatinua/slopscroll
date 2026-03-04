@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { CivitaiRequestSpec, FeedPeriod, FeedSort, Settings } from "./types";
+import type { CivitaiRequestSpec, FeedPeriod, FeedSort, OfflineFeedOrder, Settings } from "./types";
 
 export interface AppConfig {
   host: string;
@@ -43,6 +43,7 @@ const DEFAULT_DATA_DIR = path.join(ROOT, "data");
 const DEFAULT_MEDIA_DIR = path.join(ROOT, "media");
 const ALLOWED_FEED_SORTS: FeedSort[] = ["Most Reactions", "Most Comments", "Most Collected", "Newest", "Oldest"];
 const ALLOWED_FEED_PERIODS: FeedPeriod[] = ["Day", "Week", "Month", "Year", "AllTime"];
+const ALLOWED_OFFLINE_FEED_ORDERS: OfflineFeedOrder[] = ["Newest", "Oldest", "Random"];
 
 export const defaultConfig: AppConfig = {
   host: "0.0.0.0",
@@ -68,7 +69,9 @@ export const defaultConfig: AppConfig = {
     browsingLevelX: true,
     browsingLevelXXX: true,
     feedSort: "Newest",
-    feedPeriod: "Week"
+    feedPeriod: "Week",
+    offlineModeEnabled: false,
+    offlineFeedOrder: "Newest"
   },
   civitai: {
     validatePath: "",
@@ -122,6 +125,15 @@ function toFeedPeriod(value: string | undefined, fallback: FeedPeriod): FeedPeri
   return match ?? fallback;
 }
 
+function toOfflineFeedOrder(value: string | undefined, fallback: OfflineFeedOrder): OfflineFeedOrder {
+  if (!value) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  const match = ALLOWED_OFFLINE_FEED_ORDERS.find((candidate) => candidate.toLowerCase() === normalized);
+  return match ?? fallback;
+}
+
 export function loadConfig(): AppConfig {
   const localPath = path.join(ROOT, "config", "local.json");
   const localConfig = readJsonFile<PartialConfig>(localPath) ?? {};
@@ -171,7 +183,16 @@ export function loadConfig(): AppConfig {
         String(localConfig.settings?.browsingLevelXXX ?? defaultConfig.settings.browsingLevelXXX)
       ).toLowerCase() === "true",
     feedSort: toFeedSort(process.env.SLOPSCROLL_FEED_SORT, localConfig.settings?.feedSort ?? defaultConfig.settings.feedSort),
-    feedPeriod: toFeedPeriod(process.env.SLOPSCROLL_FEED_PERIOD, localConfig.settings?.feedPeriod ?? defaultConfig.settings.feedPeriod)
+    feedPeriod: toFeedPeriod(process.env.SLOPSCROLL_FEED_PERIOD, localConfig.settings?.feedPeriod ?? defaultConfig.settings.feedPeriod),
+    offlineModeEnabled:
+      (
+        process.env.SLOPSCROLL_OFFLINE_MODE_ENABLED ??
+        String(localConfig.settings?.offlineModeEnabled ?? defaultConfig.settings.offlineModeEnabled)
+      ).toLowerCase() === "true",
+    offlineFeedOrder: toOfflineFeedOrder(
+      process.env.SLOPSCROLL_OFFLINE_FEED_ORDER,
+      localConfig.settings?.offlineFeedOrder ?? defaultConfig.settings.offlineFeedOrder
+    )
   };
 
   const civitai = {

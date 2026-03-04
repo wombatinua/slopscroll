@@ -15,6 +15,7 @@
           <button id="nav-home" type="button" class="brand-home active" aria-current="page" title="Home">
             SlopScroll
           </button>
+          <span id="offline-badge" class="offline-badge hidden" aria-live="polite">OFFLINE</span>
           <nav id="feed-nav" class="feed-nav hidden" aria-label="Feed navigation">
             <button id="nav-back-main" type="button" class="feed-nav-btn feed-nav-back hidden" aria-label="Back to main feed" title="Back to main feed">
               <svg class="nav-back-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -138,6 +139,10 @@
         <select id="auto-advance-seconds"></select>
         <label for="disk-warn">Low disk warning GB</label>
         <input id="disk-warn" type="number" min="0" step="0.5" value="2" />
+        <label class="toggle-inline" for="offline-mode-enabled">
+          <input id="offline-mode-enabled" type="checkbox" />
+          Offline mode (cached videos only)
+        </label>
         <h3>Feed Browsing Levels</h3>
         <div class="toggle-row-single-line">
           <label class="toggle-inline" for="browsing-level-r">
@@ -185,7 +190,7 @@
 
       <section>
         <h3>Likes</h3>
-        <button id="btn-show-liked-users" type="button">Liked Users</button>
+        <button id="btn-show-liked-users" type="button">Liked Feeds</button>
         <div id="liked-users-list" class="liked-users-list hidden"></div>
       </section>
 
@@ -226,6 +231,11 @@
           <button type="button" class="period-menu-item" data-period="AllTime" role="menuitemradio" aria-checked="false">All Time</button>
         </div>
       </div>
+      <div id="offline-order-control" class="offline-order-control hidden" role="group" aria-label="Offline feed order">
+        <button type="button" class="offline-order-btn" data-offline-order="Newest">Newest</button>
+        <button type="button" class="offline-order-btn" data-offline-order="Oldest">Oldest</button>
+        <button type="button" class="offline-order-btn" data-offline-order="Random">Random</button>
+      </div>
     </div>
     <button
       id="btn-exit-fullscreen"
@@ -244,6 +254,13 @@
       <div class="overlay-card">
         <h3>Auth Required</h3>
         <p>Import valid Civitai cookies to start loading videos.</p>
+      </div>
+    </div>
+
+    <div id="overlay-offline-empty" class="overlay hidden">
+      <div class="overlay-card">
+        <h3>No cached videos available offline.</h3>
+        <p>Turn off Offline Mode to fetch from Civitai.</p>
       </div>
     </div>
 

@@ -1,12 +1,15 @@
+import fs from "node:fs";
+import type { AppConfig } from "../config";
 import { AppDb } from "../db";
 import { logger } from "../logger";
 import { SessionStore } from "../sessionStore";
-import type { FeedPage, VideoRecord } from "../types";
+import type { FeedPage, OfflineFeedOrder, VideoRecord } from "../types";
 import { normalizeFeedResponse } from "./feedNormalizer";
 import { CivitaiClient } from "../civitai/client";
 
 export class FeedService {
   private readonly servedIdsByMode = new Map<string, Set<string>>();
+  private readonly offlineRandomOrderByMode = new Map<string, string[]>();
   private readonly authorTotalsCache = new Map<string, { totalVideos: number; checkedAt: number }>();
   private readonly authorTotalsInFlight = new Map<string, Promise<{ totalVideos: number; complete: boolean; scannedPages: number }>>();
   private static readonly AUTHOR_TOTALS_TTL_MS = 5 * 60 * 1000;
@@ -14,12 +17,17 @@ export class FeedService {
   private static readonly AUTHOR_TOTALS_MAX_PAGES = 200;
 
   constructor(
+    private readonly config: AppConfig,
     private readonly db: AppDb,
     private readonly sessionStore: SessionStore,
     private readonly civitaiClient: CivitaiClient
   ) {}
 
   async getNextFeed(cursor: string | null, limit: number, authorFilter?: string | null): Promise<FeedPage> {
+    if (this.config.settings.offlineModeEnabled) {
+      return this.getNextOfflineFeed(cursor, limit, authorFilter);
+    }
+
     const cookies = this.sessionStore.getCookies();
     if (!cookies) {
       throw new Error("No auth cookies configured. Use POST /api/auth/cookies first.");
@@ -108,6 +116,7 @@ export class FeedService {
 
   resetInMemoryState(): void {
     this.servedIdsByMode.clear();
+    this.offlineRandomOrderByMode.clear();
     this.authorTotalsCache.clear();
     this.authorTotalsInFlight.clear();
   }
@@ -120,6 +129,20 @@ export class FeedService {
     if (!normalizedAuthor) {
       throw new Error("author is required");
     }
+
+    if (this.config.settings.offlineModeEnabled) {
+      const totalVideos = this.db
+        .listOfflineReadyEntries(normalizedAuthor)
+        .filter((entry) => this.hasReadyLocalFile(entry.localPath)).length;
+      return {
+        author: normalizedAuthor,
+        totalVideos,
+        complete: true,
+        scannedPages: 0,
+        cached: true
+      };
+    }
+
     const totalsKey = this.getAuthorTotalsKey(normalizedAuthor);
 
     const now = Date.now();
@@ -223,6 +246,101 @@ export class FeedService {
     };
   }
 
+  private async getNextOfflineFeed(cursor: string | null, limit: number, authorFilter?: string | null): Promise<FeedPage> {
+    const safeLimit = Math.max(1, Math.min(20, Math.trunc(limit)));
+    const author = (authorFilter ?? "").trim() || null;
+    const order = this.normalizeOfflineFeedOrder(this.config.settings.offlineFeedOrder);
+
+    if (order === "Random") {
+      return this.getNextOfflineRandomFeed(cursor, safeLimit, author);
+    }
+    return this.getNextOfflineSortedFeed(cursor, safeLimit, author, order);
+  }
+
+  private getNextOfflineSortedFeed(
+    cursor: string | null,
+    limit: number,
+    authorFilter: string | null,
+    order: "Newest" | "Oldest"
+  ): FeedPage {
+    const offset = this.parseOfflineCursorToOffset(cursor);
+    const totalRows = this.db.countOfflineFeedRows(authorFilter);
+    if (offset >= totalRows) {
+      return {
+        items: [],
+        nextCursor: null,
+        page: this.parseOfflinePage(offset, limit)
+      };
+    }
+
+    const batchSize = Math.max(limit * 3, 24);
+    const items: VideoRecord[] = [];
+    let scanOffset = offset;
+
+    while (items.length < limit && scanOffset < totalRows) {
+      const rows = this.db.listOfflineFeedRows({
+        offset: scanOffset,
+        limit: batchSize,
+        author: authorFilter,
+        order
+      });
+      if (rows.length === 0) {
+        break;
+      }
+
+      for (const row of rows) {
+        scanOffset += 1;
+        if (!this.hasReadyLocalFile(row.localPath)) {
+          continue;
+        }
+        items.push(row.video);
+        if (items.length >= limit) {
+          break;
+        }
+      }
+    }
+
+    const nextCursor = scanOffset < totalRows ? String(scanOffset) : null;
+    return {
+      items,
+      nextCursor,
+      page: this.parseOfflinePage(offset, limit)
+    };
+  }
+
+  private getNextOfflineRandomFeed(cursor: string | null, limit: number, authorFilter: string | null): FeedPage {
+    const modeKey = this.getModeKey(authorFilter);
+    if (cursor == null || !this.offlineRandomOrderByMode.has(modeKey)) {
+      const orderedIds = this.db
+        .listOfflineReadyEntries(authorFilter)
+        .filter((entry) => this.hasReadyLocalFile(entry.localPath))
+        .map((entry) => entry.videoId);
+      this.shuffleInPlace(orderedIds);
+      this.offlineRandomOrderByMode.set(modeKey, orderedIds);
+    }
+
+    const order = this.offlineRandomOrderByMode.get(modeKey) ?? [];
+    const offset = this.parseOfflineCursorToOffset(cursor);
+    if (offset >= order.length) {
+      return {
+        items: [],
+        nextCursor: null,
+        page: this.parseOfflinePage(offset, limit)
+      };
+    }
+
+    const slice = order.slice(offset, offset + limit);
+    const items = this.db.getOfflineVideosByIds(slice);
+    const nextOffset = offset + slice.length;
+    const nextCursor = nextOffset < order.length ? String(nextOffset) : null;
+
+    return {
+      items,
+      nextCursor,
+      page: this.parseOfflinePage(offset, limit)
+    };
+  }
+
   private dedupe(items: VideoRecord[], modeKey: string): VideoRecord[] {
     const deduped: VideoRecord[] = [];
     const local = new Set<string>();
@@ -277,6 +395,29 @@ export class FeedService {
     return 1;
   }
 
+  private parseOfflineCursorToOffset(cursor: string | null): number {
+    if (!cursor) {
+      return 0;
+    }
+    const parsed = Number.parseInt(cursor, 10);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      return 0;
+    }
+    return parsed;
+  }
+
+  private parseOfflinePage(offset: number, limit: number): number {
+    const safeLimit = Math.max(1, Math.trunc(limit));
+    return Math.floor(Math.max(0, offset) / safeLimit) + 1;
+  }
+
+  private normalizeOfflineFeedOrder(order: OfflineFeedOrder): OfflineFeedOrder {
+    if (order === "Oldest" || order === "Random") {
+      return order;
+    }
+    return "Newest";
+  }
+
   private getModeKey(authorFilter?: string | null): string {
     const author = this.normalizeAuthor(authorFilter);
     if (!author) {
@@ -297,6 +438,27 @@ export class FeedService {
   private normalizeAuthor(author?: string | null): string | null {
     const value = (author ?? "").trim().toLowerCase();
     return value || null;
+  }
+
+  private hasReadyLocalFile(localPath: string): boolean {
+    if (!localPath) {
+      return false;
+    }
+    try {
+      const stat = fs.statSync(localPath);
+      return stat.isFile() && stat.size > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  private shuffleInPlace(values: string[]): void {
+    for (let idx = values.length - 1; idx > 0; idx -= 1) {
+      const swapIdx = Math.floor(Math.random() * (idx + 1));
+      const tmp = values[idx];
+      values[idx] = values[swapIdx];
+      values[swapIdx] = tmp;
+    }
   }
 
   private getAuthorTotalsKey(author: string): string {

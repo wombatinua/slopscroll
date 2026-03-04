@@ -88,13 +88,17 @@ export class CacheService {
 
   async streamVideo(video: VideoRecord, reply: FastifyReply): Promise<FastifyReply> {
     const entry = await this.ensureCached(video);
-    const stat = await fs.promises.stat(entry.localPath);
-    const mime = await this.detectVideoMime(entry.localPath);
+    return this.streamCachedFile(entry.localPath, reply);
+  }
+
+  async streamCachedFile(localPath: string, reply: FastifyReply): Promise<FastifyReply> {
+    const stat = await fs.promises.stat(localPath);
+    const mime = await this.detectVideoMime(localPath);
 
     reply.header("Content-Type", mime);
     reply.header("Content-Length", String(stat.size));
     reply.header("Cache-Control", "public, max-age=31536000, immutable");
-    return reply.send(fs.createReadStream(entry.localPath));
+    return reply.send(fs.createReadStream(localPath));
   }
 
   async getDiskHealth(): Promise<{ freeBytes: number | null; lowDisk: boolean }> {
