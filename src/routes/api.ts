@@ -610,6 +610,29 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
     };
   });
 
+  app.post("/api/db/backup", async (_req, reply) => {
+    try {
+      const result = deps.db.createRotatingBackupCopies();
+      const backup1Stat = fs.statSync(result.backup1);
+      const backup2Stat = result.backup2 ? fs.statSync(result.backup2) : null;
+      return {
+        ok: true,
+        backup1: result.backup1,
+        backup2: result.backup2,
+        backup1Bytes: backup1Stat.size,
+        backup2Bytes: backup2Stat?.size ?? 0,
+        createdAt: new Date().toISOString()
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(500);
+      return {
+        ok: false,
+        error: message
+      };
+    }
+  });
+
   app.get("/api/audio/library", async () => {
     const files = await deps.audioLibraryService.listLibrary();
     return {

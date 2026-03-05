@@ -3,6 +3,7 @@ npm-debug.log*
 dist
 .DS_Store
 data/database.db
+data/database.db-backup*
 data/database.db-shm
 data/database.db-wal
 data/database.db-journal

@@ -1,4 +1,4 @@
-const CACHE_NAME = "slopscroll-shell-v4";
+const CACHE_NAME = "slopscroll-shell-v5";
 const SHELL_ASSETS = [
   "/",
   "/index.html",
@@ -68,6 +68,17 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (request.mode === "navigate") {
+    event.respondWith(networkFirst(request));
+    return;
+  }
+
+  const isHotAsset =
+    url.pathname === "/app.js" ||
+    url.pathname === "/styles.css" ||
+    url.pathname === "/index.html" ||
+    url.pathname === "/" ||
+    url.pathname === "/manifest.webmanifest";
+  if (isHotAsset) {
     event.respondWith(networkFirst(request));
     return;
   }

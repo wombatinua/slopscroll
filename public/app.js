@@ -113,6 +113,7 @@
     autoAdvanceSecondsDisabledNote: document.getElementById("auto-advance-seconds-disabled-note"),
     btnToggleAutoAdvance: document.getElementById("btn-toggle-autoadvance"),
     btnFlushCache: document.getElementById("btn-flush-cache"),
+    btnBackupDb: document.getElementById("btn-backup-db"),
     diskWarn: document.getElementById("disk-warn"),
     stats: document.getElementById("stats-output"),
     tpl: document.getElementById("video-card-template"),
@@ -172,7 +173,11 @@
 
   async function api(path, options) {
     const method = (options?.method || "GET").toUpperCase();
-    const headers = method === "GET" ? {} : { "Content-Type": "application/json" };
+    const hasBody = options && Object.prototype.hasOwnProperty.call(options, "body") && options.body != null;
+    const headers = { ...(options?.headers ?? {}) };
+    if (method !== "GET" && hasBody && !Object.keys(headers).some((key) => key.toLowerCase() === "content-type")) {
+      headers["Content-Type"] = "application/json";
+    }
     const res = await fetch(path, {
       headers,
       cache: "no-store",
@@ -2470,6 +2475,21 @@
     }
   }
 
+  async function backupDatabaseNow() {
+    try {
+      const result = await api("/api/db/backup", {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      const backup1 = String(result.backup1 || "database.db-backup1");
+      const backup2 = result.backup2 ? String(result.backup2) : "not present";
+      showToast(`Database backup saved. 1: ${backup1}; 2: ${backup2}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      showToast(`Database backup failed: ${message}`, true);
+    }
+  }
+
   async function setActiveIndex(index) {
     if (index === state.activeIndex || index < 0 || index >= state.items.length) {
       return;
@@ -2711,6 +2731,7 @@
     refs.navHome.addEventListener("click", () => void navigateHome());
     refs.navBackMain.addEventListener("click", () => void switchToGeneralFeed({ restoreFromSnapshot: true }));
     refs.btnFlushCache.addEventListener("click", () => void flushCacheAndIndex());
+    refs.btnBackupDb.addEventListener("click", () => void backupDatabaseNow());
     refs.prefetchDepth.addEventListener("change", () => {
       const nextDepth = Math.max(0, Math.min(10, Number.parseInt(refs.prefetchDepth.value, 10) || state.prefetchDepth));
       state.prefetchDepth = nextDepth;

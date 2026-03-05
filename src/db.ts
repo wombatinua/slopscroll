@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import fs from "node:fs";
 import path from "node:path";
 import { ensureParentDir } from "./utils/fs";
 import type { CacheEntry, FeedMode, FeedPeriod, FeedSort, OfflineFeedOrder, Settings, VideoRecord } from "./types";
@@ -66,8 +67,10 @@ function normalizeCacheLocalPath(value: string): string {
 
 export class AppDb {
   private readonly db: DatabaseSync;
+  private readonly dbPath: string;
 
   constructor(dbPath: string) {
+    this.dbPath = dbPath;
     ensureParentDir(dbPath);
     this.db = new DatabaseSync(dbPath);
     this.db.exec("PRAGMA journal_mode = WAL;");
@@ -365,6 +368,39 @@ export class AppDb {
 
   close(): void {
     this.db.close();
+  }
+
+  createRotatingBackupCopies(): { backup1: string; backup2: string | null } {
+    const backup1 = `${this.dbPath}-backup1`;
+    const backup2 = `${this.dbPath}-backup2`;
+
+    try {
+      fs.rmSync(backup2, { force: true });
+    } catch {
+      // Ignore cleanup failures and continue with best effort.
+    }
+
+    if (fs.existsSync(backup1)) {
+      fs.renameSync(backup1, backup2);
+    }
+
+    const escapedBackup1Path = backup1.replace(/'/g, "''");
+    this.db.exec(`VACUUM INTO '${escapedBackup1Path}'`);
+
+    let backup2Path: string | null = null;
+    try {
+      const stat = fs.statSync(backup2);
+      if (stat.isFile()) {
+        backup2Path = backup2;
+      }
+    } catch {
+      backup2Path = null;
+    }
+
+    return {
+      backup1,
+      backup2: backup2Path
+    };
   }
 
   upsertVideo(video: VideoRecord): void {
