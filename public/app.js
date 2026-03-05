@@ -8,6 +8,10 @@
     authValid: false,
     activeIndex: -1,
     prefetchDepth: 3,
+    feedPageSize: 8,
+    loadMoreThreshold: 4,
+    keepBehindCount: 10,
+    keepAheadCount: 2,
     prefetchSent: new Set(),
     prefetchPending: new Set(),
     failedVideoIds: new Set(),
@@ -69,15 +73,26 @@
     overlayAuth: document.getElementById("overlay-auth"),
     authState: document.getElementById("auth-state"),
     cookieInput: document.getElementById("cookie-input"),
+    btnSaveCookies: document.getElementById("btn-save-cookies"),
+    sectionAccountAccess: document.getElementById("section-account-access"),
+    sectionContentLevels: document.getElementById("section-content-levels"),
+    accountOnlineOnlyNote: document.getElementById("account-online-only-note"),
+    contentLevelsOnlineOnlyNote: document.getElementById("content-levels-online-only-note"),
     prefetchDepth: document.getElementById("prefetch-depth"),
+    feedPageSize: document.getElementById("feed-page-size"),
+    loadMoreThreshold: document.getElementById("load-more-threshold"),
+    keepBehindCount: document.getElementById("keep-behind-count"),
+    keepAheadCount: document.getElementById("keep-ahead-count"),
     feedMode: document.getElementById("feed-mode"),
     audioEnabled: document.getElementById("audio-enabled"),
     audioAutoSwitchEnabled: document.getElementById("audio-auto-switch-enabled"),
     audioSwitchOnVideoChangeEnabled: document.getElementById("audio-switch-on-video-change-enabled"),
     audioMinSwitchSec: document.getElementById("audio-min-switch-sec"),
     audioMaxSwitchSec: document.getElementById("audio-max-switch-sec"),
+    audioRandomSwitchDisabledNote: document.getElementById("audio-random-switch-disabled-note"),
     audioCrossfadeSec: document.getElementById("audio-crossfade-sec"),
     audioPlaybackRate: document.getElementById("audio-playback-rate"),
+    audioLoopSettingsDisabledNote: document.getElementById("audio-loop-settings-disabled-note"),
     panicShortcutEnabled: document.getElementById("panic-shortcut-enabled"),
     browsingLevelR: document.getElementById("browsing-level-r"),
     browsingLevelX: document.getElementById("browsing-level-x"),
@@ -87,6 +102,7 @@
     btnToggleAudio: document.getElementById("btn-toggle-audio"),
     autoAdvanceEnabled: document.getElementById("auto-advance-enabled"),
     autoAdvanceSeconds: document.getElementById("auto-advance-seconds"),
+    autoAdvanceSecondsDisabledNote: document.getElementById("auto-advance-seconds-disabled-note"),
     btnToggleAutoAdvance: document.getElementById("btn-toggle-autoadvance"),
     btnFlushCache: document.getElementById("btn-flush-cache"),
     diskWarn: document.getElementById("disk-warn"),
@@ -135,8 +151,6 @@
   const FEED_PERIOD_OPTIONS = ["Day", "Week", "Month", "Year", "AllTime"];
   const FEED_MODE_OPTIONS = ["online", "offline_video", "offline_image"];
   const OFFLINE_FEED_ORDER_OPTIONS = ["Newest", "Oldest", "Random"];
-  const VIDEO_KEEP_BEHIND = 10;
-  const VIDEO_KEEP_AHEAD = 2;
   const AUDIO_PITCH_SHIFT_STEPS = [
     ...Array.from({ length: 10 }, (_value, index) => 10 - index),
     0,
@@ -299,6 +313,14 @@
     }
 
     return buildGoogleSearchUrl(input);
+  }
+
+  function clampInt(value, fallback, min, max) {
+    const parsed = Number.parseInt(String(value), 10);
+    if (!Number.isFinite(parsed)) {
+      return fallback;
+    }
+    return Math.max(min, Math.min(max, parsed));
   }
 
   function normalizeFeedSort(value, fallback = "Newest") {
@@ -776,8 +798,8 @@
       return;
     }
 
-    const keepStart = Math.max(0, activeIndex - VIDEO_KEEP_BEHIND);
-    const keepEnd = Math.min(state.items.length - 1, activeIndex + VIDEO_KEEP_AHEAD);
+    const keepStart = Math.max(0, activeIndex - state.keepBehindCount);
+    const keepEnd = Math.min(state.items.length - 1, activeIndex + state.keepAheadCount);
     const cards = refs.feed.querySelectorAll(".video-card");
 
     cards.forEach((card) => {
@@ -944,7 +966,7 @@
     try {
       const cursorQuery = state.nextCursor ? `&cursor=${encodeURIComponent(state.nextCursor)}` : "";
       const authorQuery = state.selectedAuthor ? `&author=${encodeURIComponent(state.selectedAuthor)}` : "";
-      const result = await api(`/api/feed/next?limit=8${cursorQuery}${authorQuery}`);
+      const result = await api(`/api/feed/next?limit=${state.feedPageSize}${cursorQuery}${authorQuery}`);
       const start = state.items.length;
       if (Number.isInteger(result.totalCount)) {
         state.feedTotalCount = result.totalCount;
@@ -988,8 +1010,11 @@
   function applySettingsSnapshot(settings) {
     const previousMode = state.feedMode;
     const legacyOfflineEnabled = Boolean(settings.offlineModeEnabled);
-    const parsedPrefetchDepth = Number.parseInt(String(settings.prefetchDepth), 10);
-    state.prefetchDepth = Number.isFinite(parsedPrefetchDepth) ? Math.max(0, Math.min(10, parsedPrefetchDepth)) : 3;
+    state.prefetchDepth = clampInt(settings.prefetchDepth, 3, 0, 10);
+    state.feedPageSize = clampInt(settings.feedPageSize, 8, 1, 20);
+    state.loadMoreThreshold = clampInt(settings.loadMoreThreshold, 4, 0, 20);
+    state.keepBehindCount = clampInt(settings.keepBehindCount, 10, 0, 30);
+    state.keepAheadCount = clampInt(settings.keepAheadCount, 2, 0, 10);
     state.audioEnabled = Boolean(settings.audioEnabled);
     if (state.audioDisabledByPanic) {
       state.audioEnabled = false;
@@ -1019,6 +1044,10 @@
     }
 
     refs.prefetchDepth.value = String(state.prefetchDepth);
+    refs.feedPageSize.value = String(state.feedPageSize);
+    refs.loadMoreThreshold.value = String(state.loadMoreThreshold);
+    refs.keepBehindCount.value = String(state.keepBehindCount);
+    refs.keepAheadCount.value = String(state.keepAheadCount);
     refs.diskWarn.value = String(settings.lowDiskWarnGb);
     refs.audioMinSwitchSec.value = String(state.audioMinSwitchSec);
     refs.audioMaxSwitchSec.value = String(state.audioMaxSwitchSec);
@@ -1039,6 +1068,9 @@
     syncModeDependentControls();
     if (previousMode !== state.feedMode) {
       updateFeedModeUi();
+    }
+    if (state.activeIndex >= 0) {
+      updateVideoMemoryWindow(state.activeIndex);
     }
     setAuthPill(state.authValid, null);
     updateOfflineEmptyState();
@@ -1199,9 +1231,12 @@
   }
 
   function syncAutoAdvanceControls() {
+    const intervalDisabled = !state.autoAdvanceEnabled;
     refs.autoAdvanceEnabled.checked = state.autoAdvanceEnabled;
     refs.autoAdvanceSeconds.value = String(state.autoAdvanceSeconds);
-    refs.autoAdvanceSeconds.disabled = !state.autoAdvanceEnabled;
+    refs.autoAdvanceSeconds.disabled = intervalDisabled;
+    refs.autoAdvanceSeconds.title = intervalDisabled ? "Enable Auto-advance to edit this value." : "";
+    refs.autoAdvanceSecondsDisabledNote.classList.toggle("hidden", !intervalDisabled);
     refs.btnToggleAutoAdvance.classList.toggle("active", state.autoAdvanceEnabled);
     refs.btnToggleAutoAdvance.setAttribute("aria-pressed", state.autoAdvanceEnabled ? "true" : "false");
     refs.btnToggleAutoAdvance.title = state.autoAdvanceEnabled
@@ -1242,6 +1277,12 @@
   }
 
   function syncAudioControls() {
+    const loopPlaybackDisabled = !state.audioEnabled;
+    const randomSwitchDisabled = loopPlaybackDisabled || !state.audioAutoSwitchEnabled;
+    const randomSwitchHint = loopPlaybackDisabled
+      ? "Enable loop playback to edit random switch timing."
+      : "Enable Random loop switching (timer) to edit these values.";
+    const loopSettingsHint = "Enable loop playback to edit these values.";
     refs.audioEnabled.checked = state.audioEnabled;
     refs.audioAutoSwitchEnabled.checked = state.audioAutoSwitchEnabled;
     refs.audioSwitchOnVideoChangeEnabled.checked = state.audioSwitchOnVideoChangeEnabled;
@@ -1249,8 +1290,17 @@
     refs.audioMaxSwitchSec.value = String(state.audioMaxSwitchSec);
     refs.audioCrossfadeSec.value = String(state.audioCrossfadeSec);
     refs.audioPlaybackRate.value = String(state.audioPlaybackRate);
-    refs.audioMinSwitchSec.disabled = !state.audioAutoSwitchEnabled;
-    refs.audioMaxSwitchSec.disabled = !state.audioAutoSwitchEnabled;
+    refs.audioMinSwitchSec.disabled = randomSwitchDisabled;
+    refs.audioMaxSwitchSec.disabled = randomSwitchDisabled;
+    refs.audioMinSwitchSec.title = randomSwitchDisabled ? randomSwitchHint : "";
+    refs.audioMaxSwitchSec.title = randomSwitchDisabled ? randomSwitchHint : "";
+    refs.audioRandomSwitchDisabledNote.textContent = randomSwitchHint;
+    refs.audioRandomSwitchDisabledNote.classList.toggle("hidden", !randomSwitchDisabled);
+    refs.audioCrossfadeSec.disabled = loopPlaybackDisabled;
+    refs.audioPlaybackRate.disabled = loopPlaybackDisabled;
+    refs.audioCrossfadeSec.title = loopPlaybackDisabled ? loopSettingsHint : "";
+    refs.audioPlaybackRate.title = loopPlaybackDisabled ? loopSettingsHint : "";
+    refs.audioLoopSettingsDisabledNote.classList.toggle("hidden", !loopPlaybackDisabled);
     refs.browsingLevelR.checked = state.browsingLevelR;
     refs.browsingLevelX.checked = state.browsingLevelX;
     refs.browsingLevelXXX.checked = state.browsingLevelXXX;
@@ -1345,7 +1395,26 @@
   }
 
   function syncModeDependentControls() {
+    const offline = isOfflineFeedMode();
     const imageMode = isOfflineImageMode();
+
+    const onlineOnlyHint = "Available in Online mode only";
+    refs.cookieInput.disabled = offline;
+    refs.btnSaveCookies.disabled = offline;
+    refs.cookieInput.title = offline ? onlineOnlyHint : "";
+    refs.btnSaveCookies.title = offline ? onlineOnlyHint : "";
+    refs.sectionAccountAccess.classList.toggle("section-disabled", offline);
+    refs.accountOnlineOnlyNote.classList.toggle("hidden", !offline);
+
+    refs.browsingLevelR.disabled = offline;
+    refs.browsingLevelX.disabled = offline;
+    refs.browsingLevelXXX.disabled = offline;
+    refs.browsingLevelR.title = offline ? onlineOnlyHint : "";
+    refs.browsingLevelX.title = offline ? onlineOnlyHint : "";
+    refs.browsingLevelXXX.title = offline ? onlineOnlyHint : "";
+    refs.sectionContentLevels.classList.toggle("section-disabled", offline);
+    refs.contentLevelsOnlineOnlyNote.classList.toggle("hidden", !offline);
+
     refs.likesSection.classList.toggle("hidden", imageMode);
     if (imageMode) {
       state.likedUsersListOpen = false;
@@ -2315,7 +2384,7 @@
 
     await prefetchFrom(index);
 
-    if (state.items.length - index <= 4) {
+    if (state.items.length - index <= state.loadMoreThreshold) {
       await loadMore();
     }
 
@@ -2337,9 +2406,9 @@
     }
 
     if (next < state.items.length) {
-      const target = refs.feed.querySelector(`.video-card[data-idx="${next}"]`);
-      if (target) {
-        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      const nextCard = getCardByIndex(next);
+      if (nextCard) {
+        nextCard.scrollIntoView({ behavior: "smooth", block: "start" });
       }
       return;
     }
@@ -2448,7 +2517,7 @@
       setFullscreenUi(Boolean(document.fullscreenElement) || state.pseudoFullscreenActive);
     });
 
-    document.getElementById("btn-save-cookies").addEventListener("click", () => void saveCookies());
+    refs.btnSaveCookies.addEventListener("click", () => void saveCookies());
     refs.btnRefreshAudioLibrary.addEventListener("click", () => void refreshAudioLibrary(true));
     refs.navHome.addEventListener("click", () => void navigateHome());
     refs.navBackMain.addEventListener("click", () => void switchToGeneralFeed({ restoreFromSnapshot: true }));
@@ -2458,6 +2527,36 @@
       state.prefetchDepth = nextDepth;
       refs.prefetchDepth.value = String(nextDepth);
       void persistSettingsPatch({ prefetchDepth: nextDepth });
+    });
+    refs.feedPageSize.addEventListener("change", () => {
+      const nextPageSize = clampInt(refs.feedPageSize.value, state.feedPageSize, 1, 20);
+      state.feedPageSize = nextPageSize;
+      refs.feedPageSize.value = String(nextPageSize);
+      void persistSettingsPatch({ feedPageSize: nextPageSize });
+    });
+    refs.loadMoreThreshold.addEventListener("change", () => {
+      const nextThreshold = clampInt(refs.loadMoreThreshold.value, state.loadMoreThreshold, 0, 20);
+      state.loadMoreThreshold = nextThreshold;
+      refs.loadMoreThreshold.value = String(nextThreshold);
+      void persistSettingsPatch({ loadMoreThreshold: nextThreshold });
+    });
+    refs.keepBehindCount.addEventListener("change", () => {
+      const nextKeepBehind = clampInt(refs.keepBehindCount.value, state.keepBehindCount, 0, 30);
+      state.keepBehindCount = nextKeepBehind;
+      refs.keepBehindCount.value = String(nextKeepBehind);
+      if (state.activeIndex >= 0) {
+        updateVideoMemoryWindow(state.activeIndex);
+      }
+      void persistSettingsPatch({ keepBehindCount: nextKeepBehind });
+    });
+    refs.keepAheadCount.addEventListener("change", () => {
+      const nextKeepAhead = clampInt(refs.keepAheadCount.value, state.keepAheadCount, 0, 10);
+      state.keepAheadCount = nextKeepAhead;
+      refs.keepAheadCount.value = String(nextKeepAhead);
+      if (state.activeIndex >= 0) {
+        updateVideoMemoryWindow(state.activeIndex);
+      }
+      void persistSettingsPatch({ keepAheadCount: nextKeepAhead });
     });
     refs.diskWarn.addEventListener("change", () => {
       const parsed = Number.parseFloat(refs.diskWarn.value);
@@ -2635,7 +2734,7 @@
 
       const dir = event.key === "ArrowUp" || event.key === "k" ? -1 : 1;
       const next = Math.max(0, Math.min(state.items.length - 1, state.activeIndex + dir));
-      const target = refs.feed.querySelector(`.video-card[data-idx="${next}"]`);
+      const target = getCardByIndex(next);
       if (target) {
         target.scrollIntoView({ behavior: "smooth", block: "start" });
       }

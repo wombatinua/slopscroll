@@ -310,7 +310,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
         return offlineUnavailable(reply, "Offline mode enabled: requested video is not available in ready local cache");
       }
       try {
-        return deps.cacheService.streamCachedFile(entry.localPath, reply);
+        return await deps.cacheService.streamCachedFile(entry.localPath, reply);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         reply.code(500);
@@ -331,7 +331,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
     }
 
     try {
-      return deps.cacheService.streamVideo(video, reply);
+      return await deps.cacheService.streamVideo(video, reply);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const isAuth = /unauthorized|cookie|auth/i.test(message);
@@ -463,6 +463,10 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
   app.put<{
     Body: {
       prefetchDepth?: number;
+      feedPageSize?: number;
+      loadMoreThreshold?: number;
+      keepBehindCount?: number;
+      keepAheadCount?: number;
       lowDiskWarnGb?: number;
       audioEnabled?: boolean;
       audioAutoSwitchEnabled?: boolean;
@@ -484,6 +488,10 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
   }>("/api/settings", async (req, reply) => {
     const existing = deps.db.getSettings(deps.config.settings);
     const requestedPrefetchDepth = Number(req.body?.prefetchDepth ?? existing.prefetchDepth);
+    const requestedFeedPageSize = Number(req.body?.feedPageSize ?? existing.feedPageSize);
+    const requestedLoadMoreThreshold = Number(req.body?.loadMoreThreshold ?? existing.loadMoreThreshold);
+    const requestedKeepBehindCount = Number(req.body?.keepBehindCount ?? existing.keepBehindCount);
+    const requestedKeepAheadCount = Number(req.body?.keepAheadCount ?? existing.keepAheadCount);
     const requestedAudioMin = Number(req.body?.audioMinSwitchSec ?? existing.audioMinSwitchSec);
     const requestedAudioMax = Number(req.body?.audioMaxSwitchSec ?? existing.audioMaxSwitchSec);
     const requestedAudioCrossfade = Number(req.body?.audioCrossfadeSec ?? existing.audioCrossfadeSec);
@@ -491,6 +499,22 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
     if (!Number.isFinite(requestedPrefetchDepth)) {
       reply.code(400);
       return { ok: false, error: "prefetchDepth must be a number" };
+    }
+    if (!Number.isFinite(requestedFeedPageSize)) {
+      reply.code(400);
+      return { ok: false, error: "feedPageSize must be a number" };
+    }
+    if (!Number.isFinite(requestedLoadMoreThreshold)) {
+      reply.code(400);
+      return { ok: false, error: "loadMoreThreshold must be a number" };
+    }
+    if (!Number.isFinite(requestedKeepBehindCount)) {
+      reply.code(400);
+      return { ok: false, error: "keepBehindCount must be a number" };
+    }
+    if (!Number.isFinite(requestedKeepAheadCount)) {
+      reply.code(400);
+      return { ok: false, error: "keepAheadCount must be a number" };
     }
     const audioMinSwitchSec = clamp(Math.trunc(requestedAudioMin), 1, 3600);
     const audioMaxSwitchSec = clamp(Math.trunc(requestedAudioMax), 1, 3600);
@@ -508,6 +532,10 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
 
     const next = {
       prefetchDepth: clamp(Math.trunc(requestedPrefetchDepth), 0, 10),
+      feedPageSize: clamp(Math.trunc(requestedFeedPageSize), 1, 20),
+      loadMoreThreshold: clamp(Math.trunc(requestedLoadMoreThreshold), 0, 20),
+      keepBehindCount: clamp(Math.trunc(requestedKeepBehindCount), 0, 30),
+      keepAheadCount: clamp(Math.trunc(requestedKeepAheadCount), 0, 10),
       lowDiskWarnGb: Math.max(0, Number(req.body?.lowDiskWarnGb ?? existing.lowDiskWarnGb)),
       audioEnabled: parseBoolean(req.body?.audioEnabled, existing.audioEnabled),
       audioAutoSwitchEnabled: parseBoolean(req.body?.audioAutoSwitchEnabled, existing.audioAutoSwitchEnabled),

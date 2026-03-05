@@ -51,6 +51,10 @@ export type FeedItem = VideoRecord | ImageRecord;
 
 export interface Settings {
   prefetchDepth: number;
+  feedPageSize: number;
+  loadMoreThreshold: number;
+  keepBehindCount: number;
+  keepAheadCount: number;
   lowDiskWarnGb: number;
   audioEnabled: boolean;
   audioAutoSwitchEnabled: boolean;

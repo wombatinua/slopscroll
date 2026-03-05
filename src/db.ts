@@ -758,7 +758,7 @@ export class AppDb {
   getSettings(defaults: Settings): Settings {
     const rows = this.db
       .prepare(
-        `SELECT key, value FROM settings WHERE key IN ('prefetchDepth', 'lowDiskWarnGb', 'audioEnabled', 'audioAutoSwitchEnabled', 'audioSwitchOnVideoChangeEnabled', 'audioMinSwitchSec', 'audioMaxSwitchSec', 'audioCrossfadeSec', 'audioPlaybackRate', 'panicShortcutEnabled', 'browsingLevelR', 'browsingLevelX', 'browsingLevelXXX', 'feedSort', 'feedPeriod', 'feedMode', 'offlineModeEnabled', 'offlineFeedOrder')`
+        `SELECT key, value FROM settings WHERE key IN ('prefetchDepth', 'feedPageSize', 'loadMoreThreshold', 'keepBehindCount', 'keepAheadCount', 'lowDiskWarnGb', 'audioEnabled', 'audioAutoSwitchEnabled', 'audioSwitchOnVideoChangeEnabled', 'audioMinSwitchSec', 'audioMaxSwitchSec', 'audioCrossfadeSec', 'audioPlaybackRate', 'panicShortcutEnabled', 'browsingLevelR', 'browsingLevelX', 'browsingLevelXXX', 'feedSort', 'feedPeriod', 'feedMode', 'offlineModeEnabled', 'offlineFeedOrder')`
       )
       .all() as Array<{ key: string; value: string }>;
 
@@ -769,6 +769,30 @@ export class AppDb {
         const parsed = Number.parseInt(row.value, 10);
         if (Number.isFinite(parsed)) {
           output.prefetchDepth = parsed;
+        }
+      }
+      if (row.key === "feedPageSize") {
+        const parsed = Number.parseInt(row.value, 10);
+        if (Number.isFinite(parsed)) {
+          output.feedPageSize = parsed;
+        }
+      }
+      if (row.key === "loadMoreThreshold") {
+        const parsed = Number.parseInt(row.value, 10);
+        if (Number.isFinite(parsed)) {
+          output.loadMoreThreshold = parsed;
+        }
+      }
+      if (row.key === "keepBehindCount") {
+        const parsed = Number.parseInt(row.value, 10);
+        if (Number.isFinite(parsed)) {
+          output.keepBehindCount = parsed;
+        }
+      }
+      if (row.key === "keepAheadCount") {
+        const parsed = Number.parseInt(row.value, 10);
+        if (Number.isFinite(parsed)) {
+          output.keepAheadCount = parsed;
         }
       }
       if (row.key === "lowDiskWarnGb") {
@@ -855,6 +879,10 @@ export class AppDb {
     const current = new Map(currentRows.map((row) => [row.key, row.value]));
     const nextValues = new Map<string, string>([
       ["prefetchDepth", String(settings.prefetchDepth)],
+      ["feedPageSize", String(settings.feedPageSize)],
+      ["loadMoreThreshold", String(settings.loadMoreThreshold)],
+      ["keepBehindCount", String(settings.keepBehindCount)],
+      ["keepAheadCount", String(settings.keepAheadCount)],
       ["lowDiskWarnGb", String(settings.lowDiskWarnGb)],
       ["audioEnabled", String(settings.audioEnabled)],
       ["audioAutoSwitchEnabled", String(settings.audioAutoSwitchEnabled)],

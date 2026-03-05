@@ -55,12 +55,12 @@ export class CacheService {
       }
     }
 
-    this.db.incrementMetric("cache_misses");
-
     const running = this.inFlight.get(video.id);
     if (running) {
       return running;
     }
+
+    this.db.incrementMetric("cache_misses");
 
     const task = this.downloadAndStore(video);
     this.inFlight.set(video.id, task);
@@ -75,7 +75,10 @@ export class CacheService {
   async enqueuePrefetch(video: VideoRecord): Promise<void> {
     const existing = this.db.getCacheEntry(video.id);
     if (existing?.status === "ready") {
-      return;
+      const ok = await this.verifyReadyEntry(existing);
+      if (ok) {
+        return;
+      }
     }
     if (this.inFlight.has(video.id) || this.queuedPrefetchIds.has(video.id)) {
       return;

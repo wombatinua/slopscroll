@@ -104,6 +104,10 @@ export const defaultConfig: AppConfig = {
   staticDir: path.join(ROOT, "public"),
   settings: {
     prefetchDepth: 3,
+    feedPageSize: 8,
+    loadMoreThreshold: 4,
+    keepBehindCount: 10,
+    keepAheadCount: 2,
     lowDiskWarnGb: 64,
     audioEnabled: false,
     audioAutoSwitchEnabled: true,
@@ -202,11 +206,17 @@ export function loadConfig(): AppConfig {
 
   const host = process.env.APP_HOST ?? defaultConfig.host;
   const port = toInt(process.env.APP_PORT, defaultConfig.port);
-  const dataDir = process.env.APP_DATA_DIR ?? defaultConfig.dataDir;
+  const dataDir = process.env.APP_DATA_DIR ?? process.env.DATA_DIR ?? defaultConfig.dataDir;
   const soundsDir = path.join(dataDir, "sounds");
+  const cacheVideosDir = process.env.APP_CACHE_VIDEOS_DIR ?? process.env.DATA_VIDEOS_DIR ?? path.join(dataDir, "videos");
+  const cacheImagesDir = process.env.APP_CACHE_IMAGES_DIR ?? process.env.DATA_IMAGES_DIR ?? path.join(dataDir, "images");
 
   const settings: Settings = {
     prefetchDepth: toInt(process.env.SLOPSCROLL_PREFETCH_DEPTH, defaultConfig.settings.prefetchDepth),
+    feedPageSize: toInt(process.env.SLOPSCROLL_FEED_PAGE_SIZE, defaultConfig.settings.feedPageSize),
+    loadMoreThreshold: toInt(process.env.SLOPSCROLL_LOAD_MORE_THRESHOLD, defaultConfig.settings.loadMoreThreshold),
+    keepBehindCount: toInt(process.env.SLOPSCROLL_KEEP_BEHIND_COUNT, defaultConfig.settings.keepBehindCount),
+    keepAheadCount: toInt(process.env.SLOPSCROLL_KEEP_AHEAD_COUNT, defaultConfig.settings.keepAheadCount),
     lowDiskWarnGb: toNum(process.env.SLOPSCROLL_LOW_DISK_WARN_GB, defaultConfig.settings.lowDiskWarnGb),
     audioEnabled: (process.env.SLOPSCROLL_AUDIO_ENABLED ?? String(defaultConfig.settings.audioEnabled)).toLowerCase() === "true",
     audioAutoSwitchEnabled:
@@ -251,8 +261,8 @@ export function loadConfig(): AppConfig {
     port,
     soundsDir,
     dataDir,
-    cacheVideosDir: path.join(dataDir, "videos"),
-    cacheImagesDir: path.join(dataDir, "images"),
+    cacheVideosDir,
+    cacheImagesDir,
     dbPath: path.join(dataDir, "database.db"),
     sessionPath: path.join(dataDir, "session", "auth.json"),
     requestSpecPath: path.join(dataDir, "civitai-request-spec.json"),

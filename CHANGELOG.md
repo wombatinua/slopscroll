@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.18.0 - 2026-03-05
+
+- Added automatic `.env` loading on server startup (`dotenv/config`).
+- Added feed window tuning settings (UI + API + DB + config):
+  - `feedPageSize` (`1..20`)
+  - `loadMoreThreshold` (`0..20`)
+  - `keepBehindCount` (`0..30`)
+  - `keepAheadCount` (`0..10`)
+- Added env path aliases used by Docker/dev setups:
+  - `DATA_DIR` fallback for app data root
+  - `DATA_VIDEOS_DIR` / `DATA_IMAGES_DIR` for cache path overrides
+- Fixed cache stream edge case that could leave browser requests pending by awaiting stream handlers in API routes.
+- Hardened offline-video retrieval to skip stale/missing "ready" cache entries while paging.
+- Prefetch now re-verifies "ready" cache entries before skipping downloads.
+- Improved settings UX consistency:
+  - Disabled + dimmed controls for offline-only/audio-dependent options.
+  - Added inline contextual notes for disabled settings.
+  - Cookie input and `Save Cookies` are disabled together in offline modes.
+
 ## 0.17.0 - 2026-03-04
 
 - Updated dependencies to latest stable major/minor releases:

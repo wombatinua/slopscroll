@@ -2,7 +2,7 @@
 
 Local single-user cache-first video scroller for Civitai.
 
-Current version: `0.17.0`
+Current version: `0.18.0`
 
 ## Stack
 
@@ -24,6 +24,8 @@ npm install
 ```bash
 npm run parse-har -- /absolute/path/to/session.har
 ```
+
+If `.env` exists in project root, it is loaded automatically on server startup.
 
 3. Start app:
 
@@ -136,7 +138,17 @@ A: With compose defaults, loops come from host `${DATA_DIR}/sounds`, so changes 
 - Cache is indefinite by design; no auto-eviction.
 - Low disk only triggers warnings; downloads are not auto-deleted.
 - Background prefetch depth default: `3` (configurable `0..10`).
+- Feed request/page tuning defaults:
+  - `feedPageSize`: `8` (`1..20`)
+  - `loadMoreThreshold`: `4` (`0..20`)
+  - `keepBehindCount`: `10` (`0..30`)
+  - `keepAheadCount`: `2` (`0..10`)
 - Settings are saved immediately on UI control change (no Save Settings button).
+- Disabled settings controls are dimmed and show contextual hints:
+  - Cookie import + content-level filters are disabled in offline modes.
+  - Audio timer min/max require loop playback + random switch timer.
+  - Audio crossfade/pitch require loop playback.
+  - Auto-advance interval requires auto-advance toggle enabled.
 - Settings panel footer shows `SlopScroll X.X.X (commit)`.
 - Author-feed header navigation:
   - Back arrow returns to the exact main-feed position where author feed was opened.

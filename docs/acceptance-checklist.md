@@ -24,6 +24,7 @@
 
 - [ ] Default prefetch depth is 3.
 - [ ] Settings allow `0..10` prefetch depth.
+- [ ] Settings allow `feedPageSize` (`1..20`), `loadMoreThreshold` (`0..20`), `keepBehindCount` (`0..30`), `keepAheadCount` (`0..10`).
 - [ ] Next-N items are queued in background.
 - [ ] Duplicate prefetch/download requests are deduplicated.
 
@@ -44,6 +45,7 @@
 - [ ] Offline mode with zero eligible items shows centered empty-state overlay.
 - [ ] Panic mode (`Spacebar`, if enabled) opens Google-like overlay and changes tab title to `New Tab`.
 - [ ] Panic overlay search submit redirects in same tab and supports both search text and direct URL input.
+- [ ] Disabled controls are visually dimmed and have contextual helper notes.
 
 ## Audio Behavior
 
@@ -52,6 +54,8 @@
 - [ ] With audio enabled + both switch toggles disabled, current loop continues indefinitely.
 - [ ] Audio switch toggles and numeric settings become effective immediately after UI change.
 - [ ] Pitch shift setting applies immediately and persists across reloads.
+- [ ] Random-switch min/max controls are disabled unless loop playback and random switch timer are both enabled.
+- [ ] Crossfade and pitch controls are disabled unless loop playback is enabled.
 
 ## Feed Modes
 
@@ -66,6 +70,7 @@
 - [ ] `POST /api/auth/cookies` and `POST /api/spec/reload` return `409` in both offline modes.
 - [ ] `POST /api/prefetch` remains available in both offline modes and performs local-only prefetch behavior.
 - [ ] `GET /api/auth/status` returns synthetic valid status in both offline modes.
+- [ ] Cookie input and `Save Cookies` are both disabled in offline modes.
 
 ## Ops
 

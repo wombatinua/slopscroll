@@ -118,13 +118,14 @@
         </button>
       </div>
 
-      <section>
+      <section id="section-account-access">
         <h3>Account Access</h3>
         <textarea id="cookie-input" placeholder="Paste full Cookie header from authenticated civitai.com session"></textarea>
         <div class="row">
           <button id="btn-save-cookies" type="button">Save Cookies</button>
           <span id="auth-state" class="status-pill">unknown</span>
         </div>
+        <p id="account-online-only-note" class="muted-note hidden">Cookie input and Save Cookies are available only in Online mode.</p>
       </section>
 
       <section>
@@ -135,19 +136,29 @@
           <option value="offline_video">Offline Video (Cache)</option>
           <option value="offline_image">Offline Image (Local Folder)</option>
         </select>
-        <label for="prefetch-depth">Preload depth (0-10)</label>
+        <label for="prefetch-depth">Prefetch depth (0-10)</label>
         <input id="prefetch-depth" type="number" min="0" max="10" value="3" />
+        <label for="feed-page-size">Feed page size (1-20)</label>
+        <input id="feed-page-size" type="number" min="1" max="20" value="8" />
+        <label for="load-more-threshold">Load-more threshold (0-20)</label>
+        <input id="load-more-threshold" type="number" min="0" max="20" value="4" />
+        <label for="keep-behind-count">Keep-behind cards in memory (0-30)</label>
+        <input id="keep-behind-count" type="number" min="0" max="30" value="10" />
+        <label for="keep-ahead-count">Keep-ahead cards in memory (0-10)</label>
+        <input id="keep-ahead-count" type="number" min="0" max="10" value="2" />
+        <p class="muted-note">Prefetch depth controls backend cache warmup. Keep-behind/ahead controls browser memory window.</p>
         <label class="toggle-inline" for="auto-advance-enabled">
           <input id="auto-advance-enabled" type="checkbox" />
           Auto-advance
         </label>
         <label for="auto-advance-seconds">Auto-advance every</label>
         <select id="auto-advance-seconds"></select>
+        <p id="auto-advance-seconds-disabled-note" class="muted-note hidden">Available only when Auto-advance is enabled.</p>
         <label for="disk-warn">Low-disk warning (GB)</label>
         <input id="disk-warn" type="number" min="0" step="0.5" value="2" />
       </section>
 
-      <section>
+      <section id="section-content-levels">
         <h3>Content Levels</h3>
         <div class="toggle-row-single-line">
           <label class="toggle-inline" for="browsing-level-r">
@@ -163,6 +174,7 @@
             XXX
           </label>
         </div>
+        <p id="content-levels-online-only-note" class="muted-note hidden">Content levels are available only in Online mode.</p>
       </section>
 
       <section>
@@ -183,10 +195,12 @@
         <input id="audio-min-switch-sec" type="number" min="1" max="3600" value="15" />
         <label for="audio-max-switch-sec">Random switch maximum (sec)</label>
         <input id="audio-max-switch-sec" type="number" min="1" max="3600" value="45" />
+        <p id="audio-random-switch-disabled-note" class="muted-note hidden">Available only when Random loop switching (timer) is enabled.</p>
         <label for="audio-crossfade-sec">Crossfade (sec)</label>
         <input id="audio-crossfade-sec" type="number" min="0" max="30" step="0.1" value="2" />
         <label for="audio-playback-rate">Pitch shift</label>
         <select id="audio-playback-rate"></select>
+        <p id="audio-loop-settings-disabled-note" class="muted-note hidden">Available only when Enable loop playback is enabled.</p>
         <div class="row wrap">
           <button id="btn-refresh-audio-library" type="button">Rescan Audio Library</button>
         </div>

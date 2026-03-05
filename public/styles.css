@@ -360,6 +360,16 @@ button:hover {
   border-bottom: 1px solid rgba(236, 157, 197, 0.18);
 }
 
+.control-panel section.section-disabled {
+  opacity: 0.52;
+}
+
+.control-panel section.section-disabled h3,
+.control-panel section.section-disabled label,
+.control-panel section.section-disabled .muted-note {
+  color: rgba(214, 193, 204, 0.78);
+}
+
 .control-panel section:last-child {
   margin-bottom: 0;
   border-bottom: none;
@@ -403,6 +413,21 @@ select {
   color: var(--text);
   border-radius: 8px;
   padding: 8px;
+}
+
+.control-panel input:disabled,
+.control-panel textarea:disabled,
+.control-panel select:disabled,
+.control-panel button:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+  background: rgba(9, 14, 18, 0.45);
+  border-color: rgba(236, 157, 197, 0.14);
+}
+
+.control-panel button:disabled:hover {
+  transform: none;
+  background: rgba(9, 14, 18, 0.45);
 }
 
 label {

@@ -1,3 +1,4 @@
+import "dotenv/config";
 import path from "node:path";
 import fs from "node:fs";
 import Fastify from "fastify";
@@ -87,7 +88,11 @@ async function bootstrap(): Promise<void> {
     port: config.port,
     host: config.host,
     staticDir: config.staticDir,
+    dataDir: config.dataDir,
     soundsDir: config.soundsDir,
+    cacheVideosDir: config.cacheVideosDir,
+    cacheImagesDir: config.cacheImagesDir,
+    dbPath: config.dbPath,
     hasCookies: sessionExists,
     hasRequestSpec: Boolean(requestSpec)
   });

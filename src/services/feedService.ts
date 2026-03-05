@@ -371,10 +371,21 @@ export class FeedService {
       };
     }
 
-    const slice = order.slice(offset, offset + limit);
-    const items = this.db.getOfflineVideosByIds(slice);
-    const nextOffset = offset + slice.length;
-    const nextCursor = nextOffset < order.length ? String(nextOffset) : null;
+    const items: VideoRecord[] = [];
+    let scanOffset = offset;
+    while (items.length < limit && scanOffset < order.length) {
+      const videoId = order[scanOffset];
+      scanOffset += 1;
+      const entry = this.db.getCacheEntry(videoId);
+      if (!entry || entry.status !== "ready" || !this.hasReadyLocalFile(entry.localPath)) {
+        continue;
+      }
+      const video = this.db.getVideo(videoId);
+      if (video) {
+        items.push(video);
+      }
+    }
+    const nextCursor = scanOffset < order.length ? String(scanOffset) : null;
 
     return {
       items: this.asVideoItems(items),
