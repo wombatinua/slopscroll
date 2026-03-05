@@ -18,6 +18,9 @@
     statsRequestInFlight: false,
     fullscreenActive: false,
     pseudoFullscreenActive: false,
+    fullscreenAnchorIndex: null,
+    intersectionLockUntil: 0,
+    deferredInstallPrompt: null,
     settingsPanelOpen: false,
     isIosLike: false,
     autoAdvanceEnabled: false,
@@ -116,6 +119,7 @@
     btnLikeAuthor: document.getElementById("btn-like-author"),
     btnToggleFullscreen: document.getElementById("btn-toggle-fullscreen"),
     btnExitFullscreen: document.getElementById("btn-exit-fullscreen"),
+    btnInstallApp: document.getElementById("btn-install-app"),
     btnToggleSettings: document.getElementById("btn-toggle-settings"),
     btnCloseSettings: document.getElementById("btn-close-settings"),
     settingsPanel: document.getElementById("settings-panel"),
@@ -1540,6 +1544,64 @@
     return true;
   }
 
+  function resolveVisibleFeedAnchorIndex() {
+    const cards = refs.feed.querySelectorAll(".video-card");
+    if (cards.length === 0) {
+      return state.activeIndex;
+    }
+    const currentTop = refs.feed.scrollTop;
+    let bestIndex = state.activeIndex;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    cards.forEach((card) => {
+      const idx = Number.parseInt(card.dataset.idx || "-1", 10);
+      if (!Number.isInteger(idx) || idx < 0) {
+        return;
+      }
+      const distance = Math.abs(card.offsetTop - currentTop);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = idx;
+      }
+    });
+    return bestIndex;
+  }
+
+  function lockFeedIntersection(ms = 500) {
+    state.intersectionLockUntil = Date.now() + Math.max(0, ms);
+  }
+
+  function armFullscreenFeedAnchor() {
+    const anchorIndex = resolveVisibleFeedAnchorIndex();
+    if (Number.isInteger(anchorIndex) && anchorIndex >= 0) {
+      state.fullscreenAnchorIndex = anchorIndex;
+    } else {
+      state.fullscreenAnchorIndex = null;
+    }
+    lockFeedIntersection(700);
+  }
+
+  function restoreFullscreenFeedAnchorIfNeeded() {
+    const anchorIndex = Number.isInteger(state.fullscreenAnchorIndex) ? state.fullscreenAnchorIndex : state.activeIndex;
+    state.fullscreenAnchorIndex = null;
+    if (!Number.isInteger(anchorIndex) || anchorIndex < 0 || anchorIndex >= state.items.length) {
+      return;
+    }
+    lockFeedIntersection(700);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const snapped = jumpFeedToIndexNoAnimation(anchorIndex);
+        if (!snapped) {
+          return;
+        }
+        if (state.activeIndex !== anchorIndex) {
+          void setActiveIndex(anchorIndex);
+          return;
+        }
+        updateVideoMemoryWindow(anchorIndex);
+      });
+    });
+  }
+
   async function refreshAudioLibrary(showResultToast = false) {
     try {
       const result = await api(`/api/audio/library?_ts=${Date.now()}`);
@@ -1978,7 +2040,9 @@
   }
 
   function setFullscreenUi(active) {
-    state.fullscreenActive = Boolean(active);
+    const nextActive = Boolean(active);
+    const changed = state.fullscreenActive !== nextActive;
+    state.fullscreenActive = nextActive;
     document.body.classList.toggle("video-only-mode", state.fullscreenActive);
     refs.btnToggleFullscreen.classList.toggle("active", state.fullscreenActive);
     refs.btnToggleFullscreen.setAttribute("aria-pressed", state.fullscreenActive ? "true" : "false");
@@ -1992,6 +2056,9 @@
 
     if (state.fullscreenActive) {
       setSettingsPanelOpen(false);
+    }
+    if (changed) {
+      restoreFullscreenFeedAnchorIfNeeded();
     }
   }
 
@@ -2014,6 +2081,7 @@
   }
 
   async function closeFullscreenMode() {
+    armFullscreenFeedAnchor();
     if (state.pseudoFullscreenActive) {
       state.pseudoFullscreenActive = false;
       setFullscreenUi(Boolean(document.fullscreenElement));
@@ -2026,6 +2094,7 @@
   }
 
   async function toggleFullscreen() {
+    armFullscreenFeedAnchor();
     if (state.isIosLike) {
       state.pseudoFullscreenActive = !state.pseudoFullscreenActive;
       setFullscreenUi(state.pseudoFullscreenActive);
@@ -2048,6 +2117,42 @@
       state.pseudoFullscreenActive = true;
       setFullscreenUi(true);
     }
+  }
+
+  function isStandaloneDisplayMode() {
+    const standaloneByMedia = window.matchMedia && window.matchMedia("(display-mode: standalone)").matches;
+    const standaloneByNavigator = window.navigator && window.navigator.standalone === true;
+    return Boolean(standaloneByMedia || standaloneByNavigator);
+  }
+
+  function syncInstallButton() {
+    const canInstall = Boolean(state.deferredInstallPrompt) && !isStandaloneDisplayMode();
+    refs.btnInstallApp.classList.toggle("hidden", !canInstall);
+  }
+
+  function setupPwaInstallPrompt() {
+    window.addEventListener("beforeinstallprompt", (event) => {
+      event.preventDefault();
+      state.deferredInstallPrompt = event;
+      syncInstallButton();
+    });
+    window.addEventListener("appinstalled", () => {
+      state.deferredInstallPrompt = null;
+      syncInstallButton();
+      showToast("App installed");
+    });
+    syncInstallButton();
+  }
+
+  function registerServiceWorker() {
+    if (!("serviceWorker" in navigator)) {
+      return;
+    }
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("/sw.js").catch(() => {
+        // Keep app usable even if SW registration fails.
+      });
+    });
   }
 
   function captureMainFeedSnapshot() {
@@ -2417,7 +2522,7 @@
   }
 
   function onIntersect(entries) {
-    if (state.restoringMainFeed || state.panicActive) {
+    if (state.restoringMainFeed || state.panicActive || Date.now() < state.intersectionLockUntil) {
       return;
     }
     const minRatio = 0.9;
@@ -2458,6 +2563,23 @@
     });
     refs.btnToggleFullscreen.addEventListener("click", () => void toggleFullscreen());
     refs.btnExitFullscreen.addEventListener("click", () => void closeFullscreenMode());
+    refs.btnInstallApp.addEventListener("click", async () => {
+      if (!state.deferredInstallPrompt) {
+        syncInstallButton();
+        return;
+      }
+      const promptEvent = state.deferredInstallPrompt;
+      state.deferredInstallPrompt = null;
+      syncInstallButton();
+      try {
+        await promptEvent.prompt();
+        await promptEvent.userChoice;
+      } catch {
+        // Ignore prompt errors; browser may block repeated prompts.
+      } finally {
+        syncInstallButton();
+      }
+    });
     refs.btnToggleSettings.addEventListener("click", () => toggleSettingsPanel());
     refs.btnCloseSettings.addEventListener("click", () => setSettingsPanelOpen(false));
     refs.settingsBackdrop.addEventListener("click", () => setSettingsPanelOpen(false));
@@ -2762,6 +2884,8 @@
   async function init() {
     setFeedInitializing(true);
     bindEvents();
+    setupPwaInstallPrompt();
+    registerServiceWorker();
     populateAutoAdvanceOptions();
     populateAudioPlaybackRateOptions();
     state.isIosLike = detectIosLike();

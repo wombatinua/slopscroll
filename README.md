@@ -37,6 +37,13 @@ npm run dev
 
 5. Paste full browser `Cookie` header in UI.
 
+## PWA Install
+
+- Open app in a browser with PWA support (Chrome/Edge/Safari iOS).
+- Wait until top bar shows the `Install app` button (download icon).
+- Click it and confirm install prompt.
+- Installed app opens in standalone mode and reuses cached shell assets (`index`, `styles`, `app.js`, icons, manifest) via service worker.
+
 ## Docker
 
 Run with Docker Compose:

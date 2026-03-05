@@ -7,6 +7,7 @@
 3. `npm run dev`
 4. Open `http://localhost:3579`
 5. Paste full browser `Cookie` header in UI
+6. Optional: install as PWA via `Install app` button in top bar (when browser exposes install prompt)
 
 ## Docker Operation
 
@@ -36,6 +37,62 @@ Notes:
   - `Online`: Civitai-backed feed.
   - `Offline Video Mode`: ready cached videos only.
   - `Offline Image Mode`: local images from `data/images` only.
+
+## Smoke Check (10-15 min)
+
+Run this before release or after changes in feed/cache/settings/audio logic.
+
+1. Startup
+- Run `npm run dev` (or `./scripts/docker-up.sh`).
+- Open `http://localhost:3579`.
+- Expect: app loads without JS errors, settings panel opens, version label is visible.
+
+2. Online auth + feed
+- Set `Feed mode = Online`.
+- Import valid cookies.
+- Expect: auth status is valid, first feed page loads, active item starts normally.
+
+3. Feed navigation + incremental load
+- Scroll 10-20 items (mouse/touch/keyboard `j/k` or arrows).
+- Expect: no stuck pending requests, no blank card gaps, load-more triggers near the end.
+
+4. Cache + replay sanity
+- Open DevTools Network and replay a few already visited items.
+- Expect: videos already seen are served from local cache path via backend without hangs.
+
+5. Settings persistence
+- Change `Prefetch depth`, `Feed page size`, `Load-more threshold`, `Keep-behind`, `Keep-ahead`.
+- Reload page.
+- Expect: values persist and apply immediately after reload.
+
+6. Disabled-state consistency
+- Switch to `Offline Video` or `Offline Image`.
+- Expect: cookie input + `Save Cookies` disabled and dimmed; content-level toggles disabled and dimmed.
+- Toggle `Auto-advance` off/on.
+- Expect: interval selector is disabled only when auto-advance is off, with helper note.
+- Toggle `Enable loop playback` off/on.
+- Expect: `Crossfade` + `Pitch shift` disabled only when loop playback is off.
+- Toggle `Random loop switching (timer)` off/on (with loop playback on).
+- Expect: random min/max disabled only when timer is off.
+
+7. Offline modes
+- `Offline Video`: verify feed shows only ready cached videos, no Civitai requests.
+- `Offline Image`: verify image-only feed from `data/images`, likes/author flow hidden.
+- Expect: empty offline source shows centered empty-state overlay (not blank screen).
+
+8. Audio behavior quick pass
+- With loop playback on, test:
+  - random timer on: loop switches in configured min/max window
+  - switch-on-video-change on: loop switches on item change
+- With both switches off: current loop continues.
+
+9. Panic mode
+- If enabled, press `Spacebar`.
+- Expect: panic overlay appears immediately, tab title becomes `New Tab`, audio/feed playback pauses.
+
+10. Final health
+- Check `GET /api/health` and `GET /api/cache/stats`.
+- Expect: service healthy, stats endpoint responds, no obvious error spikes in logs.
 
 ## Troubleshooting
 

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="SlopScroll icon">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#241a33"/>
+      <stop offset="1" stop-color="#122738"/>
+    </linearGradient>
+    <linearGradient id="stroke" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff0f7"/>
+      <stop offset="1" stop-color="#ffdcec"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="#0b1218"/>
+  <rect x="30" y="30" width="452" height="452" rx="98" fill="url(#bg)"/>
+  <rect x="22" y="22" width="468" height="468" rx="104" fill="none" stroke="#ff77b4" stroke-width="4"/>
+
+  <path
+    d="M344 96H204C159 96 124 131 124 176C124 221 159 256 204 256H308C353 256 388 291 388 336C388 381 353 416 308 416H168"
+    fill="none"
+    stroke="url(#stroke)"
+    stroke-width="56"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>
