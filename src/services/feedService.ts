@@ -80,11 +80,12 @@ export class FeedService {
           })
         : normalized.items;
       const deduped = this.dedupe(filteredItems, modeKey);
+      const deliverable = deduped.filter((item) => !this.shouldSkipKnownFailedOnlineItem(item.id));
 
-      for (const item of deduped) {
+      for (const item of deliverable) {
         this.db.upsertVideo(item);
       }
-      this.attachLikedFlags(deduped);
+      this.attachLikedFlags(deliverable);
 
       logger.info("feed.page.fetched", {
         requestedLimit: limit,
@@ -93,15 +94,17 @@ export class FeedService {
         received: normalized.items.length,
         filtered: filteredItems.length,
         deduped: deduped.length,
+        skippedKnownFailed: deduped.length - deliverable.length,
+        deliverable: deliverable.length,
         nextCursor: normalized.nextCursor,
         hop
       });
 
       const nextCursor = normalized.nextCursor;
       const cursorAdvanced = Boolean(nextCursor && nextCursor !== requestCursor);
-      if (deduped.length > 0 || !cursorAdvanced) {
+      if (deliverable.length > 0 || !cursorAdvanced) {
         return {
-          items: this.asVideoItems(deduped),
+          items: this.asVideoItems(deliverable),
           nextCursor,
           page: this.parseCursorToPage(nextCursor)
         };
@@ -511,6 +514,15 @@ export class FeedService {
     } catch {
       return false;
     }
+  }
+
+  private shouldSkipKnownFailedOnlineItem(videoId: string): boolean {
+    const entry = this.db.getCacheEntry(videoId);
+    if (!entry || entry.status !== "failed") {
+      return false;
+    }
+    const reason = String(entry.failureReason ?? "").toLowerCase();
+    return reason.includes("media request failed for all url candidates");
   }
 
   private shuffleInPlace(values: string[]): void {

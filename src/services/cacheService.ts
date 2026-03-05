@@ -29,6 +29,19 @@ interface PrefetchTask {
   video: VideoRecord;
 }
 
+interface CandidateDiagnostics {
+  statusCounts: Record<string, number>;
+  rejectedContentTypeCounts: Record<string, number>;
+  sampleFailures: string[];
+}
+
+interface CandidateAttemptResult {
+  response: Response | null;
+  usedCandidate: string | null;
+  triedCount: number;
+  diagnostics: CandidateDiagnostics;
+}
+
 export class CacheService {
   private readonly inFlight = new Map<string, Promise<CacheEntry>>();
   private readonly prefetchQueue: PrefetchTask[] = [];
@@ -198,6 +211,8 @@ export class CacheService {
         let usedCandidate: string | null = initialAttempt.usedCandidate;
         let triedCount = initialAttempt.triedCount;
         let sourceLabel = "direct";
+        const diagnostics = this.createCandidateDiagnostics();
+        this.mergeCandidateDiagnostics(diagnostics, initialAttempt.diagnostics);
 
         if (!response) {
           const pageCandidates = await this.civitaiClient.fetchVideoSourceCandidatesFromPage(video.pageUrl, cookies);
@@ -207,12 +222,14 @@ export class CacheService {
             response = pageAttempt.response;
             usedCandidate = pageAttempt.usedCandidate;
             triedCount += pageAttempt.triedCount;
+            this.mergeCandidateDiagnostics(diagnostics, pageAttempt.diagnostics);
             sourceLabel = "page";
           }
         }
 
         if (!response) {
-          throw new Error(`Media request failed for all URL candidates (tried ${triedCount})`);
+          const diagnosticsSummary = this.formatCandidateDiagnostics(diagnostics);
+          throw new Error(`Media request failed for all URL candidates (tried ${triedCount}; ${diagnosticsSummary})`);
         }
 
         if (response.status === 401 || response.status === 403) {
@@ -305,16 +322,19 @@ export class CacheService {
     candidates: string[],
     cookies: string,
     attempt: number
-  ): Promise<{ response: Response | null; usedCandidate: string | null; triedCount: number }> {
+  ): Promise<CandidateAttemptResult> {
     let triedCount = 0;
     let transientFailure: RetryableError | null = null;
+    const diagnostics = this.createCandidateDiagnostics();
 
     for (const candidate of candidates) {
       triedCount += 1;
       const candidateResponse = await this.civitaiClient.downloadMedia(candidate, cookies, video.pageUrl);
+      this.bumpCounter(diagnostics.statusCounts, String(candidateResponse.status));
 
       if (candidateResponse.status === 401 || candidateResponse.status === 403) {
         this.db.incrementMetric("auth_failures");
+        this.pushFailureSample(diagnostics, candidate, `status=${candidateResponse.status}`);
         throw new Error(`Unauthorized media download (${candidateResponse.status})`);
       }
 
@@ -329,6 +349,7 @@ export class CacheService {
       }
 
       if (candidateResponse.status >= 500) {
+        this.pushFailureSample(diagnostics, candidate, `status=${candidateResponse.status}`);
         transientFailure = new RetryableError(
           `Media request transient failure (${candidateResponse.status})`,
           this.computeJitteredBackoffMs(attempt)
@@ -337,11 +358,14 @@ export class CacheService {
       }
 
       if (!candidateResponse.ok) {
+        this.pushFailureSample(diagnostics, candidate, `status=${candidateResponse.status}`);
         continue;
       }
 
       const contentType = (candidateResponse.headers.get("content-type") ?? "").toLowerCase();
       if (!this.isLikelyVideoContentType(contentType)) {
+        this.bumpCounter(diagnostics.rejectedContentTypeCounts, contentType || "<empty>");
+        this.pushFailureSample(diagnostics, candidate, `content-type=${contentType || "<empty>"}`);
         logger.warn("cache.download.rejected_content_type", {
           videoId: video.id,
           candidate,
@@ -353,7 +377,8 @@ export class CacheService {
       return {
         response: candidateResponse,
         usedCandidate: candidate,
-        triedCount
+        triedCount,
+        diagnostics
       };
     }
 
@@ -364,8 +389,63 @@ export class CacheService {
     return {
       response: null,
       usedCandidate: null,
-      triedCount
+      triedCount,
+      diagnostics
     };
+  }
+
+  private createCandidateDiagnostics(): CandidateDiagnostics {
+    return {
+      statusCounts: {},
+      rejectedContentTypeCounts: {},
+      sampleFailures: []
+    };
+  }
+
+  private mergeCandidateDiagnostics(target: CandidateDiagnostics, source: CandidateDiagnostics): void {
+    this.mergeCounters(target.statusCounts, source.statusCounts);
+    this.mergeCounters(target.rejectedContentTypeCounts, source.rejectedContentTypeCounts);
+    for (const sample of source.sampleFailures) {
+      if (target.sampleFailures.length >= 6) {
+        break;
+      }
+      target.sampleFailures.push(sample);
+    }
+  }
+
+  private mergeCounters(target: Record<string, number>, source: Record<string, number>): void {
+    for (const [key, value] of Object.entries(source)) {
+      target[key] = (target[key] ?? 0) + value;
+    }
+  }
+
+  private bumpCounter(counter: Record<string, number>, key: string): void {
+    counter[key] = (counter[key] ?? 0) + 1;
+  }
+
+  private pushFailureSample(diagnostics: CandidateDiagnostics, candidate: string, reason: string): void {
+    if (diagnostics.sampleFailures.length >= 6) {
+      return;
+    }
+    diagnostics.sampleFailures.push(`${reason} @ ${candidate}`);
+  }
+
+  private formatCounter(counter: Record<string, number>): string {
+    const entries = Object.entries(counter);
+    if (entries.length === 0) {
+      return "none";
+    }
+    return entries
+      .sort((a, b) => b[1] - a[1])
+      .map(([key, count]) => `${key}x${count}`)
+      .join(", ");
+  }
+
+  private formatCandidateDiagnostics(diagnostics: CandidateDiagnostics): string {
+    const statusSummary = this.formatCounter(diagnostics.statusCounts);
+    const contentTypeSummary = this.formatCounter(diagnostics.rejectedContentTypeCounts);
+    const samples = diagnostics.sampleFailures.length > 0 ? diagnostics.sampleFailures.join(" | ") : "none";
+    return `statuses: ${statusSummary}; rejected-content-types: ${contentTypeSummary}; samples: ${samples}`;
   }
 
   private pumpPrefetchQueue(): void {

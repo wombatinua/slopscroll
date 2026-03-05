@@ -23,6 +23,8 @@ const DEFAULT_PAGE_URL_PATHS = ["pageUrl", "postUrl", "permalink", "url"];
 const DEFAULT_AUTHOR_PATHS = ["author.username", "creator.username", "user.username", "author", "username"];
 const DEFAULT_DURATION_PATHS = ["duration", "meta.duration", "stats.duration"];
 const DEFAULT_CREATED_AT_PATHS = ["createdAt", "publishedAt", "meta.createdAt"];
+const IMAGE_EXT_PATTERN = /\.(?:avif|bmp|gif|jpe?g|png|svg|webp)(?:$|[?#])/i;
+const VIDEO_EXT_PATTERN = /\.(?:avi|m4v|mkv|mov|mp4|webm)(?:$|[?#])/i;
 
 function mergePaths(primary: string[] | undefined, fallback: string[]): string[] {
   const out: string[] = [];
@@ -77,6 +79,72 @@ function isLikelyVideoRow(row: Record<string, unknown>): boolean {
   }
 
   return false;
+}
+
+function isExplicitImageRow(row: Record<string, unknown>): boolean {
+  const rowType = String(row.type ?? row.kind ?? "").toLowerCase();
+  if (rowType === "image" || rowType === "photo" || rowType === "picture") {
+    return true;
+  }
+
+  const mimeType = String(row.mimeType ?? row.contentType ?? "").toLowerCase();
+  if (mimeType.startsWith("image/")) {
+    return true;
+  }
+
+  const metadata = row.metadata;
+  if (metadata && typeof metadata === "object") {
+    const meta = metadata as Record<string, unknown>;
+    const metaMimeType = String(meta.mimeType ?? meta.contentType ?? "").toLowerCase();
+    if (metaMimeType.startsWith("image/")) {
+      return true;
+    }
+  }
+
+  const files = row.files;
+  if (Array.isArray(files)) {
+    for (const file of files) {
+      if (!file || typeof file !== "object") {
+        continue;
+      }
+      const candidate = file as Record<string, unknown>;
+      const fileType = String(candidate.type ?? "").toLowerCase();
+      if (fileType === "image") {
+        return true;
+      }
+      const fileMimeType = String(candidate.mimeType ?? candidate.contentType ?? "").toLowerCase();
+      if (fileMimeType.startsWith("image/")) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function isLikelyVideoMediaValue(rawValue: string, row: Record<string, unknown>): boolean {
+  const value = rawValue.trim();
+  if (!value) {
+    return false;
+  }
+
+  if (/^https?:\/\/civitai\.com\/images\//i.test(value)) {
+    return false;
+  }
+  if (IMAGE_EXT_PATTERN.test(value)) {
+    return false;
+  }
+  if (VIDEO_EXT_PATTERN.test(value) || /\/transcode=/i.test(value)) {
+    return true;
+  }
+  if (looksLikeUuid(value)) {
+    return isLikelyVideoRow(row);
+  }
+  if (/civitai-media-cache/i.test(value) && /\/original(?:$|[?#])/i.test(value)) {
+    return true;
+  }
+
+  return isLikelyVideoRow(row);
 }
 
 function deriveMediaUrl(rawValue: string, row: Record<string, unknown>, originHint: string | undefined): string {
@@ -160,8 +228,15 @@ export function normalizeFeedResponse(body: unknown, spec: CivitaiRequestSpec): 
     }
 
     const row = item as Record<string, unknown>;
+    if (isExplicitImageRow(row)) {
+      continue;
+    }
+
     const mediaRaw = firstStringByPaths(row, mediaPaths);
     if (!mediaRaw) {
+      continue;
+    }
+    if (!isLikelyVideoMediaValue(mediaRaw, row)) {
       continue;
     }
 
