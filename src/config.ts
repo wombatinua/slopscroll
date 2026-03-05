@@ -104,6 +104,7 @@ export const defaultConfig: AppConfig = {
   staticDir: path.join(ROOT, "public"),
   settings: {
     prefetchDepth: 3,
+    tryUnavailableVideos: false,
     feedPageSize: 8,
     loadMoreThreshold: 4,
     keepBehindCount: 10,
@@ -213,6 +214,8 @@ export function loadConfig(): AppConfig {
 
   const settings: Settings = {
     prefetchDepth: toInt(process.env.SLOPSCROLL_PREFETCH_DEPTH, defaultConfig.settings.prefetchDepth),
+    tryUnavailableVideos:
+      (process.env.SLOPSCROLL_TRY_UNAVAILABLE_VIDEOS ?? String(defaultConfig.settings.tryUnavailableVideos)).toLowerCase() === "true",
     feedPageSize: toInt(process.env.SLOPSCROLL_FEED_PAGE_SIZE, defaultConfig.settings.feedPageSize),
     loadMoreThreshold: toInt(process.env.SLOPSCROLL_LOAD_MORE_THRESHOLD, defaultConfig.settings.loadMoreThreshold),
     keepBehindCount: toInt(process.env.SLOPSCROLL_KEEP_BEHIND_COUNT, defaultConfig.settings.keepBehindCount),

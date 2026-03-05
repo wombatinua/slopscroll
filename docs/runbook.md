@@ -64,6 +64,7 @@ Run this before release or after changes in feed/cache/settings/audio logic.
 - Change `Prefetch depth`, `Feed page size`, `Load-more threshold`, `Keep-behind`, `Keep-ahead`.
 - Reload page.
 - Expect: values persist and apply immediately after reload.
+- In `Online` mode, toggle `Try unavailable videos again` and verify the switch persists after reload.
 
 6. Disabled-state consistency
 - Switch to `Offline Video` or `Offline Image`.
@@ -116,6 +117,8 @@ Run this before release or after changes in feed/cache/settings/audio logic.
 - Confirm video exists in DB via feed API first.
 - Check download status in `GET /api/cache/stats` and logs.
 - If file is corrupt/empty, request same video again to redownload.
+- `Dead Sources` in stats means items confirmed as unavailable at source and excluded from online feed by default.
+- Enable `Try unavailable videos again` in Settings only if you want to re-attempt those dead-source items.
 - In `Offline Video Mode`, uncached videos are intentionally blocked with `409`.
 - In `Offline Image Mode`, `/api/video/:id` is intentionally blocked with `409`.
 

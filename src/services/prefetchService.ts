@@ -16,8 +16,12 @@ export class PrefetchService {
         continue;
       }
 
-      queued.push(videoId);
-      await this.cacheService.enqueuePrefetch(video);
+      const enqueued = await this.cacheService.enqueuePrefetch(video);
+      if (enqueued) {
+        queued.push(videoId);
+      } else {
+        skipped.push(videoId);
+      }
     }
 
     logger.info("prefetch.enqueued", {

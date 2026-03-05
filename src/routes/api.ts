@@ -463,6 +463,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
   app.put<{
     Body: {
       prefetchDepth?: number;
+      tryUnavailableVideos?: boolean;
       feedPageSize?: number;
       loadMoreThreshold?: number;
       keepBehindCount?: number;
@@ -532,6 +533,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
 
     const next = {
       prefetchDepth: clamp(Math.trunc(requestedPrefetchDepth), 0, 10),
+      tryUnavailableVideos: parseBoolean(req.body?.tryUnavailableVideos, existing.tryUnavailableVideos),
       feedPageSize: clamp(Math.trunc(requestedFeedPageSize), 1, 20),
       loadMoreThreshold: clamp(Math.trunc(requestedLoadMoreThreshold), 0, 20),
       keepBehindCount: clamp(Math.trunc(requestedKeepBehindCount), 0, 30),

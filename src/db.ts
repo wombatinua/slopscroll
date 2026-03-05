@@ -8,6 +8,7 @@ export interface CacheStats {
   readyVideos: number;
   failedVideos: number;
   downloadingVideos: number;
+  deadSourceVideos: number;
   totalBytes: number;
   cacheHits: number;
   cacheMisses: number;
@@ -677,7 +678,7 @@ export class AppDb {
   upsertCacheEntry(entry: {
     videoId: string;
     localPath: string;
-    status: "ready" | "downloading" | "failed";
+    status: "ready" | "downloading" | "failed" | "dead_source";
     fileSize?: number;
     failureReason?: string;
   }): void {
@@ -719,7 +720,7 @@ export class AppDb {
       | {
           video_id: string;
           local_path: string;
-          status: "ready" | "downloading" | "failed";
+          status: "ready" | "downloading" | "failed" | "dead_source";
           file_size: number;
           failure_reason: string | null;
         }
@@ -736,6 +737,32 @@ export class AppDb {
       fileSize: row.file_size,
       failureReason: row.failure_reason ?? undefined
     };
+  }
+
+  listCacheEntriesByStatus(status: "ready" | "downloading" | "failed" | "dead_source"): CacheEntry[] {
+    const rows = this.db
+      .prepare(
+        `
+        SELECT video_id, local_path, status, file_size, failure_reason
+        FROM cache_entries
+        WHERE status = ?
+      `
+      )
+      .all(status) as Array<{
+      video_id: string;
+      local_path: string;
+      status: "ready" | "downloading" | "failed" | "dead_source";
+      file_size: number;
+      failure_reason: string | null;
+    }>;
+
+    return rows.map((row) => ({
+      videoId: row.video_id,
+      localPath: row.local_path,
+      status: row.status,
+      fileSize: row.file_size,
+      failureReason: row.failure_reason ?? undefined
+    }));
   }
 
   incrementMetric(key: MetricKey, by = 1): void {
@@ -758,7 +785,7 @@ export class AppDb {
   getSettings(defaults: Settings): Settings {
     const rows = this.db
       .prepare(
-        `SELECT key, value FROM settings WHERE key IN ('prefetchDepth', 'feedPageSize', 'loadMoreThreshold', 'keepBehindCount', 'keepAheadCount', 'lowDiskWarnGb', 'audioEnabled', 'audioAutoSwitchEnabled', 'audioSwitchOnVideoChangeEnabled', 'audioMinSwitchSec', 'audioMaxSwitchSec', 'audioCrossfadeSec', 'audioPlaybackRate', 'panicShortcutEnabled', 'browsingLevelR', 'browsingLevelX', 'browsingLevelXXX', 'feedSort', 'feedPeriod', 'feedMode', 'offlineModeEnabled', 'offlineFeedOrder')`
+        `SELECT key, value FROM settings WHERE key IN ('prefetchDepth', 'tryUnavailableVideos', 'feedPageSize', 'loadMoreThreshold', 'keepBehindCount', 'keepAheadCount', 'lowDiskWarnGb', 'audioEnabled', 'audioAutoSwitchEnabled', 'audioSwitchOnVideoChangeEnabled', 'audioMinSwitchSec', 'audioMaxSwitchSec', 'audioCrossfadeSec', 'audioPlaybackRate', 'panicShortcutEnabled', 'browsingLevelR', 'browsingLevelX', 'browsingLevelXXX', 'feedSort', 'feedPeriod', 'feedMode', 'offlineModeEnabled', 'offlineFeedOrder')`
       )
       .all() as Array<{ key: string; value: string }>;
 
@@ -770,6 +797,9 @@ export class AppDb {
         if (Number.isFinite(parsed)) {
           output.prefetchDepth = parsed;
         }
+      }
+      if (row.key === "tryUnavailableVideos") {
+        output.tryUnavailableVideos = row.value.toLowerCase() === "true";
       }
       if (row.key === "feedPageSize") {
         const parsed = Number.parseInt(row.value, 10);
@@ -879,6 +909,7 @@ export class AppDb {
     const current = new Map(currentRows.map((row) => [row.key, row.value]));
     const nextValues = new Map<string, string>([
       ["prefetchDepth", String(settings.prefetchDepth)],
+      ["tryUnavailableVideos", String(settings.tryUnavailableVideos)],
       ["feedPageSize", String(settings.feedPageSize)],
       ["loadMoreThreshold", String(settings.loadMoreThreshold)],
       ["keepBehindCount", String(settings.keepBehindCount)],
@@ -924,6 +955,7 @@ export class AppDb {
           SUM(CASE WHEN status = 'ready' THEN 1 ELSE 0 END) AS ready,
           SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
           SUM(CASE WHEN status = 'downloading' THEN 1 ELSE 0 END) AS downloading,
+          SUM(CASE WHEN status = 'dead_source' THEN 1 ELSE 0 END) AS dead_source,
           SUM(CASE WHEN status = 'ready' THEN file_size ELSE 0 END) AS bytes
         FROM cache_entries
       `)
@@ -932,6 +964,7 @@ export class AppDb {
       ready: number;
       failed: number;
       downloading: number;
+      dead_source: number;
       bytes: number;
     };
 
@@ -944,6 +977,7 @@ export class AppDb {
       readyVideos: summary.ready ?? 0,
       failedVideos: summary.failed ?? 0,
       downloadingVideos: summary.downloading ?? 0,
+      deadSourceVideos: summary.dead_source ?? 0,
       totalBytes: summary.bytes ?? 0,
       cacheHits: hits,
       cacheMisses: misses,

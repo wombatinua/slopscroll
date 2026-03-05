@@ -1,5 +1,6 @@
 import type { AppConfig } from "../config";
 import { logger } from "../logger";
+import { firstStringByPaths, getByPath } from "../utils/objectPath";
 import type { AuthState, CivitaiRequestSpec, FetchResult } from "../types";
 
 export interface FeedFetchOptions {
@@ -9,6 +10,11 @@ export interface FeedFetchOptions {
   author?: string | null;
   authorMode?: boolean;
 }
+
+const IMAGE_HOSTS = new Set(["image.civitai.com", "image-b2.civitai.com"]);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const VIDEO_EXT_PATTERN = /\.(?:mp4|webm)(?:$|[?#])/i;
+const IMAGE_EXT_PATTERN = /\.(?:avif|bmp|gif|jpe?g|png|svg|webp)(?:$|[?#])/i;
 
 export class CivitaiClient {
   constructor(private readonly config: AppConfig, private spec: CivitaiRequestSpec | null) {}
@@ -262,10 +268,14 @@ export class CivitaiClient {
       }
 
       const html = await response.text();
-      const urls = this.extractVideoUrlsFromHtml(html);
+      const htmlUrls = this.extractVideoUrlsFromHtml(html);
+      const imageGetUrls = await this.fetchVideoSourceCandidatesFromImageApi(target, cookies);
+      const urls = this.mergeCandidates(htmlUrls, imageGetUrls);
       logger.info("civitai.page_sources.extracted", {
         pageUrl: target,
-        found: urls.length
+        found: urls.length,
+        fromHtml: htmlUrls.length,
+        fromImageApi: imageGetUrls.length
       });
       return urls;
     } catch (error) {
@@ -426,6 +436,8 @@ export class CivitaiClient {
     if (options.authorMode && options.author) {
       jsonObj.username = options.author;
       jsonObj.types = ["video"];
+      // Author video feed is unstable/empty with useIndex=true on Civitai.
+      jsonObj.useIndex = false;
       delete jsonObj.excludedTagIds;
       delete jsonObj.followed;
     }
@@ -523,16 +535,84 @@ export class CivitaiClient {
     return value;
   }
 
+  private async fetchVideoSourceCandidatesFromImageApi(pageUrl: string, cookies: string): Promise<string[]> {
+    const imageId = this.extractImageIdFromPageUrl(pageUrl);
+    if (imageId == null) {
+      return [];
+    }
+
+    const input = JSON.stringify({ 0: { json: { id: imageId } } });
+    const url = `https://civitai.com/api/trpc/image.get?batch=1&input=${encodeURIComponent(input)}`;
+    const headers: Record<string, string> = {
+      Accept: "*/*",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) SlopScroll/1.0",
+      Referer: pageUrl,
+      Cookie: cookies
+    };
+
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        headers,
+        signal: AbortSignal.timeout(Math.max(1500, Math.min(this.config.civitai.requestTimeoutMs, 7000)))
+      });
+
+      if (!response.ok) {
+        logger.warn("civitai.image_get.non_ok", {
+          pageUrl,
+          imageId,
+          status: response.status
+        });
+        return [];
+      }
+
+      const body = (await response.json()) as unknown;
+      const imageRecord = getByPath(body, "0.result.data.json");
+      if (!imageRecord || typeof imageRecord !== "object") {
+        return [];
+      }
+
+      const record = imageRecord as Record<string, unknown>;
+      const out: string[] = [];
+      const seen = new Set<string>();
+      const push = (value: string): void => {
+        const normalized = this.normalizeExtractedCandidate(value);
+        if (!normalized || seen.has(normalized) || !this.isLikelyMediaCandidate(normalized)) {
+          return;
+        }
+        seen.add(normalized);
+        out.push(normalized);
+      };
+
+      const rawCandidate = firstStringByPaths(record, ["videoUrl", "mediaUrl", "meta.videoUrl", "meta.url", "url"]);
+      if (rawCandidate) {
+        push(rawCandidate);
+      }
+
+      const key = this.extractMediaAssetKey(rawCandidate ?? "");
+      if (key) {
+        push(`https://image-b2.civitai.com/file/civitai-media-cache/${key}/original`);
+        push(`https://image.civitai.com/file/civitai-media-cache/${key}/original`);
+      }
+
+      return out.sort((a, b) => this.scoreMediaCandidate(b) - this.scoreMediaCandidate(a));
+    } catch (error) {
+      logger.warn("civitai.image_get.failed", {
+        pageUrl,
+        imageId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return [];
+    }
+  }
+
   private extractVideoUrlsFromHtml(html: string): string[] {
     const out: string[] = [];
     const seen = new Set<string>();
     const push = (value: string): void => {
-      const normalized = value
-        .replaceAll("\\u0026", "&")
-        .replaceAll("&amp;", "&")
-        .trim();
+      const normalized = this.normalizeExtractedCandidate(value);
 
-      if (!normalized || seen.has(normalized)) {
+      if (!normalized || seen.has(normalized) || !this.isLikelyMediaCandidate(normalized)) {
         return;
       }
       seen.add(normalized);
@@ -540,18 +620,155 @@ export class CivitaiClient {
     };
 
     const patterns = [
-      /https:\/\/image(?:-b2)?\.civitai\.com\/[^"'<>\\\s]+\.(?:webm|mp4)/gi,
-      /https:\/\/image(?:-b2)?\.civitai\.com\/[^"'<>\\\s]+\/original/gi
+      /(?:src|href)\s*=\s*["']([^"']+)["']/gi,
+      /https:\/\/image(?:-b2)?\.civitai\.com\/[^"'<>\\\s)]+/gi,
+      /https:\\\/\\\/image(?:-b2)?\\.civitai\\.com[^"'<>\\\s)]+/gi
     ];
 
     for (const pattern of patterns) {
       let match: RegExpExecArray | null = null;
       while ((match = pattern.exec(html)) !== null) {
-        push(match[0]);
+        push(match[1] ?? match[0]);
       }
     }
 
+    return out.sort((a, b) => this.scoreMediaCandidate(b) - this.scoreMediaCandidate(a));
+  }
+
+  private mergeCandidates(...groups: string[][]): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const group of groups) {
+      for (const candidate of group) {
+        if (!candidate || seen.has(candidate)) {
+          continue;
+        }
+        seen.add(candidate);
+        out.push(candidate);
+      }
+    }
     return out;
+  }
+
+  private normalizeExtractedCandidate(value: string): string | null {
+    let normalized = value.trim();
+    if (!normalized) {
+      return null;
+    }
+
+    normalized = normalized
+      .replaceAll("\\u0026", "&")
+      .replaceAll("&amp;", "&")
+      .replaceAll("\\/", "/")
+      .replace(/^['"]+/, "")
+      .replace(/['"]+$/, "")
+      .replace(/[),;]+$/, "");
+
+    if (normalized.startsWith("//")) {
+      normalized = `https:${normalized}`;
+    }
+
+    return normalized || null;
+  }
+
+  private isLikelyMediaCandidate(value: string): boolean {
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch {
+      return false;
+    }
+
+    if (!IMAGE_HOSTS.has(parsed.host)) {
+      return false;
+    }
+
+    const normalized = value.toLowerCase();
+    if (IMAGE_EXT_PATTERN.test(normalized)) {
+      return false;
+    }
+    if (VIDEO_EXT_PATTERN.test(normalized)) {
+      return true;
+    }
+    if (normalized.includes("transcode=")) {
+      return true;
+    }
+    if (normalized.includes("/file/civitai-media-cache/")) {
+      return true;
+    }
+    if (/\/original(?:=true)?(?:$|[/?#])/i.test(normalized)) {
+      return true;
+    }
+    return false;
+  }
+
+  private scoreMediaCandidate(value: string): number {
+    const normalized = value.toLowerCase();
+    let score = 0;
+    if (VIDEO_EXT_PATTERN.test(normalized)) {
+      score += 80;
+    }
+    if (normalized.includes("transcode=")) {
+      score += 40;
+    }
+    if (normalized.includes("/file/civitai-media-cache/")) {
+      score += 20;
+    }
+    if (/\/original(?:=true)?(?:$|[/?#])/i.test(normalized)) {
+      score += 10;
+    }
+    if (normalized.includes("quality=90")) {
+      score += 5;
+    }
+    return score;
+  }
+
+  private extractImageIdFromPageUrl(pageUrl: string): number | null {
+    const target = pageUrl.trim();
+    if (!target) {
+      return null;
+    }
+
+    const match = target.match(/\/images\/(\d+)/i);
+    if (!match) {
+      return null;
+    }
+
+    const parsed = Number.parseInt(match[1], 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return null;
+    }
+
+    return parsed;
+  }
+
+  private extractMediaAssetKey(value: string): string | null {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    if (UUID_PATTERN.test(trimmed)) {
+      return trimmed;
+    }
+
+    try {
+      const parsed = new URL(trimmed);
+      const segments = parsed.pathname.split("/").filter(Boolean);
+      const last = segments.at(-1) ?? "";
+      if (UUID_PATTERN.test(last)) {
+        return last;
+      }
+
+      const cacheIdx = segments.findIndex((segment) => segment === "civitai-media-cache");
+      if (cacheIdx >= 0 && segments[cacheIdx + 1] && UUID_PATTERN.test(segments[cacheIdx + 1])) {
+        return segments[cacheIdx + 1];
+      }
+    } catch {
+      // no-op
+    }
+
+    return null;
   }
 
   private extractAuthorVideoCount(body: unknown): number | null {

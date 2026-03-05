@@ -12,11 +12,14 @@ import { ImageCatalogService } from "./imageCatalogService";
 export class FeedService {
   private readonly servedIdsByMode = new Map<string, Set<string>>();
   private readonly offlineRandomOrderByMode = new Map<string, string[]>();
+  private readonly onlineOverflowByMode = new Map<string, { cursor: string | null; items: VideoRecord[] }>();
   private readonly authorTotalsCache = new Map<string, { totalVideos: number; checkedAt: number }>();
   private readonly authorTotalsInFlight = new Map<string, Promise<{ totalVideos: number; complete: boolean; scannedPages: number }>>();
   private static readonly AUTHOR_TOTALS_TTL_MS = 5 * 60 * 1000;
   private static readonly AUTHOR_TOTALS_PAGE_SIZE = 50;
   private static readonly AUTHOR_TOTALS_MAX_PAGES = 200;
+  private static readonly ONLINE_FETCH_LIMIT_MIN = 20;
+  private static readonly ONLINE_SCAN_WINDOW_ITEMS = 120;
 
   constructor(
     private readonly config: AppConfig,
@@ -47,22 +50,41 @@ export class FeedService {
     const authorQuery = (authorFilter ?? "").trim() || null;
     const modeKey = this.getModeKey(authorQuery);
     const normalizedAuthorFilter = this.normalizeAuthor(authorQuery);
+    const safeLimit = Math.max(1, Math.min(20, Math.trunc(limit) || 1));
+
+    const pendingOverflow = this.onlineOverflowByMode.get(modeKey);
+    if (pendingOverflow) {
+      if (cursor === pendingOverflow.cursor) {
+        const batch = pendingOverflow.items.slice(0, safeLimit);
+        pendingOverflow.items.splice(0, batch.length);
+        if (pendingOverflow.items.length === 0) {
+          this.onlineOverflowByMode.delete(modeKey);
+        }
+        return {
+          items: this.asVideoItems(batch),
+          nextCursor: pendingOverflow.cursor,
+          page: this.parseCursorToPage(pendingOverflow.cursor)
+        };
+      }
+      this.onlineOverflowByMode.delete(modeKey);
+    }
 
     let requestCursor = cursor;
-    const maxCursorHops = 5;
+    const remoteLimit = Math.max(safeLimit, FeedService.ONLINE_FETCH_LIMIT_MIN);
+    const maxCursorHops = Math.max(5, Math.ceil(FeedService.ONLINE_SCAN_WINDOW_ITEMS / remoteLimit));
 
     for (let hop = 0; hop < maxCursorHops; hop += 1) {
       const raw = normalizedAuthorFilter
         ? await this.civitaiClient.fetchAuthorFeedRaw({
             cookies,
             cursor: requestCursor,
-            limit,
+            limit: remoteLimit,
             author: authorQuery as string
           })
         : await this.civitaiClient.fetchFeedRaw({
             cookies,
             cursor: requestCursor,
-            limit
+            limit: remoteLimit
           });
 
       if (!raw.ok) {
@@ -88,7 +110,8 @@ export class FeedService {
       this.attachLikedFlags(deliverable);
 
       logger.info("feed.page.fetched", {
-        requestedLimit: limit,
+        requestedLimit: safeLimit,
+        remoteLimit,
         authorFilter: normalizedAuthorFilter,
         cursor: requestCursor,
         received: normalized.items.length,
@@ -103,8 +126,18 @@ export class FeedService {
       const nextCursor = normalized.nextCursor;
       const cursorAdvanced = Boolean(nextCursor && nextCursor !== requestCursor);
       if (deliverable.length > 0 || !cursorAdvanced) {
+        let itemsToReturn = deliverable;
+        if (deliverable.length > safeLimit && nextCursor) {
+          itemsToReturn = deliverable.slice(0, safeLimit);
+          this.onlineOverflowByMode.set(modeKey, {
+            cursor: nextCursor,
+            items: deliverable.slice(safeLimit)
+          });
+        } else {
+          this.onlineOverflowByMode.delete(modeKey);
+        }
         return {
-          items: this.asVideoItems(deliverable),
+          items: this.asVideoItems(itemsToReturn),
           nextCursor,
           page: this.parseCursorToPage(nextCursor)
         };
@@ -147,6 +180,7 @@ export class FeedService {
   resetInMemoryState(): void {
     this.servedIdsByMode.clear();
     this.offlineRandomOrderByMode.clear();
+    this.onlineOverflowByMode.clear();
     this.authorTotalsCache.clear();
     this.authorTotalsInFlight.clear();
     this.imageCatalogService.reset();
@@ -518,7 +552,13 @@ export class FeedService {
 
   private shouldSkipKnownFailedOnlineItem(videoId: string): boolean {
     const entry = this.db.getCacheEntry(videoId);
-    if (!entry || entry.status !== "failed") {
+    if (!entry) {
+      return false;
+    }
+    if (entry.status === "dead_source") {
+      return true;
+    }
+    if (entry.status !== "failed") {
       return false;
     }
     const reason = String(entry.failureReason ?? "").toLowerCase();

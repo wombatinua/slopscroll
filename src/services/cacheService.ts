@@ -59,6 +59,10 @@ export class CacheService {
 
   async ensureCached(video: VideoRecord): Promise<CacheEntry> {
     const existing = this.db.getCacheEntry(video.id);
+    if (existing?.status === "dead_source" && !this.config.settings.tryUnavailableVideos) {
+      throw new Error("Media source is marked as unavailable (dead_source)");
+    }
+
     if (existing && existing.status === "ready") {
       const ok = await this.verifyReadyEntry(existing);
       if (ok) {
@@ -85,21 +89,25 @@ export class CacheService {
     }
   }
 
-  async enqueuePrefetch(video: VideoRecord): Promise<void> {
+  async enqueuePrefetch(video: VideoRecord): Promise<boolean> {
     const existing = this.db.getCacheEntry(video.id);
     if (existing?.status === "ready") {
       const ok = await this.verifyReadyEntry(existing);
       if (ok) {
-        return;
+        return false;
       }
     }
+    if (existing?.status === "dead_source" && !this.config.settings.tryUnavailableVideos) {
+      return false;
+    }
     if (this.inFlight.has(video.id) || this.queuedPrefetchIds.has(video.id)) {
-      return;
+      return false;
     }
 
     this.prefetchQueue.push({ video });
     this.queuedPrefetchIds.add(video.id);
     this.pumpPrefetchQueue();
+    return true;
   }
 
   async streamVideo(video: VideoRecord, reply: FastifyReply): Promise<FastifyReply> {
@@ -170,6 +178,72 @@ export class CacheService {
     };
   }
 
+  async reconcileInterruptedDownloads(): Promise<{
+    checked: number;
+    recoveredReady: number;
+    markedFailed: number;
+    removedPartials: number;
+  }> {
+    const entries = this.db.listCacheEntriesByStatus("downloading");
+    if (entries.length === 0) {
+      return { checked: 0, recoveredReady: 0, markedFailed: 0, removedPartials: 0 };
+    }
+
+    let recoveredReady = 0;
+    let markedFailed = 0;
+    let removedPartials = 0;
+
+    for (const entry of entries) {
+      const resolvedPath = this.resolveStoredCachePath(entry.localPath);
+      const tmpPath = `${resolvedPath}.part`;
+
+      try {
+        const stat = await fs.promises.stat(resolvedPath);
+        if (stat.size > 0) {
+          this.db.upsertCacheEntry({
+            videoId: entry.videoId,
+            localPath: entry.localPath,
+            status: "ready",
+            fileSize: stat.size
+          });
+          recoveredReady += 1;
+          continue;
+        }
+      } catch {
+        // file does not exist, keep reconciling as failed
+      }
+
+      try {
+        await fs.promises.unlink(tmpPath);
+        removedPartials += 1;
+      } catch {
+        // no temp partial left
+      }
+
+      this.db.upsertCacheEntry({
+        videoId: entry.videoId,
+        localPath: entry.localPath,
+        status: "failed",
+        failureReason: "Interrupted download from previous run"
+      });
+      markedFailed += 1;
+    }
+
+    logger.warn("cache.reconcile_interrupted_downloads", {
+      checked: entries.length,
+      recoveredReady,
+      markedFailed,
+      removedPartials
+    });
+
+    return {
+      checked: entries.length,
+      recoveredReady,
+      markedFailed,
+      removedPartials
+    };
+  }
+
   private async verifyReadyEntry(entry: CacheEntry): Promise<boolean> {
     const resolvedPath = this.resolveStoredCachePath(entry.localPath);
     try {
@@ -196,6 +270,7 @@ export class CacheService {
 
     const maxAttempts = Math.max(1, this.config.civitai.maxDownloadRetries);
     let lastError = "Unknown download error";
+    let deadSourceDetected = false;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
@@ -229,6 +304,9 @@ export class CacheService {
 
         if (!response) {
           const diagnosticsSummary = this.formatCandidateDiagnostics(diagnostics);
+          if (this.isDeadSourceDiagnostics(diagnostics)) {
+            throw new DeadSourceError(`Media source unavailable: all URL candidates returned 404 (tried ${triedCount}; ${diagnosticsSummary})`);
+          }
           throw new Error(`Media request failed for all URL candidates (tried ${triedCount}; ${diagnosticsSummary})`);
         }
 
@@ -284,6 +362,9 @@ export class CacheService {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         lastError = message;
+        if (error instanceof DeadSourceError) {
+          deadSourceDetected = true;
+        }
 
         await this.safeUnlink(tmpPath);
 
@@ -310,7 +391,7 @@ export class CacheService {
     this.db.upsertCacheEntry({
       videoId: video.id,
       localPath,
-      status: "failed",
+      status: deadSourceDetected ? "dead_source" : "failed",
       failureReason: lastError
     });
 
@@ -446,6 +527,14 @@ export class CacheService {
     const contentTypeSummary = this.formatCounter(diagnostics.rejectedContentTypeCounts);
     const samples = diagnostics.sampleFailures.length > 0 ? diagnostics.sampleFailures.join(" | ") : "none";
     return `statuses: ${statusSummary}; rejected-content-types: ${contentTypeSummary}; samples: ${samples}`;
+  }
+
+  private isDeadSourceDiagnostics(diagnostics: CandidateDiagnostics): boolean {
+    const entries = Object.entries(diagnostics.statusCounts);
+    if (entries.length === 0) {
+      return false;
+    }
+    return entries.every(([status]) => status === "404");
   }
 
   private pumpPrefetchQueue(): void {
@@ -644,3 +733,5 @@ class RetryableError extends Error {
     super(message);
   }
 }
+
+class DeadSourceError extends Error {}

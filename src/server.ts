@@ -40,6 +40,10 @@ async function bootstrap(): Promise<void> {
   const imageCatalogService = new ImageCatalogService(config.cacheImagesDir);
   const feedService = new FeedService(config, db, sessionStore, civitaiClient, imageCatalogService);
   const cacheService = new CacheService(db, config, sessionStore, civitaiClient);
+  const interruptedDownloadReconcile = await cacheService.reconcileInterruptedDownloads();
+  if (interruptedDownloadReconcile.checked > 0) {
+    logger.info("startup.interrupted_downloads_reconciled", interruptedDownloadReconcile);
+  }
   const prefetchService = new PrefetchService(feedService, cacheService);
   const audioLibraryService = new AudioLibraryService(config.soundsDir);
 

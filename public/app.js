@@ -8,6 +8,7 @@
     authValid: false,
     activeIndex: -1,
     prefetchDepth: 3,
+    tryUnavailableVideos: false,
     feedPageSize: 8,
     loadMoreThreshold: 4,
     keepBehindCount: 10,
@@ -16,6 +17,7 @@
     prefetchPending: new Set(),
     failedVideoIds: new Set(),
     statsRequestInFlight: false,
+    statsAutoRefreshTimerId: null,
     fullscreenActive: false,
     pseudoFullscreenActive: false,
     fullscreenAnchorIndex: null,
@@ -62,6 +64,7 @@
     selectedAuthorTotal: null,
     selectedAuthorTotalLoading: false,
     selectedAuthorTotalComplete: true,
+    selectedAuthorTotalRetryAt: 0,
     mainFeedSnapshot: null,
     restoringMainFeed: false,
     likedUsers: new Set(),
@@ -82,6 +85,8 @@
     accountOnlineOnlyNote: document.getElementById("account-online-only-note"),
     contentLevelsOnlineOnlyNote: document.getElementById("content-levels-online-only-note"),
     prefetchDepth: document.getElementById("prefetch-depth"),
+    tryUnavailableVideos: document.getElementById("try-unavailable-videos"),
+    tryUnavailableOnlineOnlyNote: document.getElementById("try-unavailable-online-only-note"),
     feedPageSize: document.getElementById("feed-page-size"),
     loadMoreThreshold: document.getElementById("load-more-threshold"),
     keepBehindCount: document.getElementById("keep-behind-count"),
@@ -404,10 +409,10 @@
 
     const rows = [
       ["Ready Videos", `${formatInt(stats.readyVideos)} / ${formatInt(stats.totalVideos)}`],
-      ["Downloading", `${formatInt(stats.downloadingVideos)} (${formatInt(stats.failedVideos)} failed)`],
+      ["Downloading", formatInt(stats.downloadingVideos)],
+      ["Dead Sources", formatInt(stats.deadSourceVideos)],
       ["Cache Size", formatBytes(stats.totalBytes)],
       ["Hit Rate", `${formatPercent(stats.hitRate)} (${formatInt(stats.cacheHits)} hits / ${formatInt(stats.cacheMisses)} misses)`],
-      ["Download Failures", formatInt(stats.downloadFailures)],
       ["Free Disk", `${formatBytes(disk.freeBytes)}${disk.lowDisk ? " (Low disk warning)" : ""}`],
       ["Cache Directory", statsResponse.cacheDir || "-"],
       ["Spec Loaded", statsResponse.specConfigured ? "Yes" : "No"],
@@ -603,7 +608,24 @@
       const normalizedTotal = Math.max(state.selectedAuthorTotal, minFromIndex, minFromLoadedItems);
       return state.selectedAuthorTotalComplete ? String(normalizedTotal) : `${normalizedTotal}+`;
     }
-    return "...";
+    const fallbackFromIndex = Number.isInteger(currentIndex) && currentIndex >= 0 ? currentIndex + 1 : 0;
+    const fallbackFromLoadedItems = state.items.length > 0 ? state.items.length : 0;
+    const fallback = Math.max(fallbackFromIndex, fallbackFromLoadedItems);
+    return fallback > 0 ? `${fallback}+` : "...";
+  }
+
+  function maybeRefreshAuthorTotal() {
+    if (isOfflineImageMode()) {
+      return;
+    }
+    if (!state.selectedAuthor || Number.isInteger(state.selectedAuthorTotal) || state.selectedAuthorTotalLoading) {
+      return;
+    }
+    if (Date.now() < state.selectedAuthorTotalRetryAt) {
+      return;
+    }
+    state.selectedAuthorTotalRetryAt = Date.now() + 15000;
+    void refreshAuthorTotal(state.selectedAuthor);
   }
 
   function renderFixedMeta(item, index) {
@@ -987,6 +1009,9 @@
       }
 
       state.nextCursor = result.nextCursor;
+      if (state.selectedAuthor) {
+        maybeRefreshAuthorTotal();
+      }
       if (result.items.length === 0) {
         const stillEmpty = state.items.length === 0 && start === 0;
         if (isOfflineFeedMode() && stillEmpty) {
@@ -1015,6 +1040,7 @@
     const previousMode = state.feedMode;
     const legacyOfflineEnabled = Boolean(settings.offlineModeEnabled);
     state.prefetchDepth = clampInt(settings.prefetchDepth, 3, 0, 10);
+    state.tryUnavailableVideos = Boolean(settings.tryUnavailableVideos);
     state.feedPageSize = clampInt(settings.feedPageSize, 8, 1, 20);
     state.loadMoreThreshold = clampInt(settings.loadMoreThreshold, 4, 0, 20);
     state.keepBehindCount = clampInt(settings.keepBehindCount, 10, 0, 30);
@@ -1048,6 +1074,7 @@
     }
 
     refs.prefetchDepth.value = String(state.prefetchDepth);
+    refs.tryUnavailableVideos.checked = state.tryUnavailableVideos;
     refs.feedPageSize.value = String(state.feedPageSize);
     refs.loadMoreThreshold.value = String(state.loadMoreThreshold);
     refs.keepBehindCount.value = String(state.keepBehindCount);
@@ -1157,6 +1184,22 @@
     } finally {
       state.statsRequestInFlight = false;
     }
+  }
+
+  function stopStatsAutoRefresh() {
+    if (state.statsAutoRefreshTimerId !== null) {
+      clearInterval(state.statsAutoRefreshTimerId);
+      state.statsAutoRefreshTimerId = null;
+    }
+  }
+
+  function startStatsAutoRefresh() {
+    if (state.statsAutoRefreshTimerId !== null) {
+      return;
+    }
+    state.statsAutoRefreshTimerId = setInterval(() => {
+      void refreshStats();
+    }, 1000);
   }
 
   async function prefetchFrom(index) {
@@ -1418,6 +1461,10 @@
     refs.browsingLevelXXX.title = offline ? onlineOnlyHint : "";
     refs.sectionContentLevels.classList.toggle("section-disabled", offline);
     refs.contentLevelsOnlineOnlyNote.classList.toggle("hidden", !offline);
+
+    refs.tryUnavailableVideos.disabled = offline;
+    refs.tryUnavailableVideos.title = offline ? onlineOnlyHint : "";
+    refs.tryUnavailableOnlineOnlyNote.classList.toggle("hidden", !offline);
 
     refs.likesSection.classList.toggle("hidden", imageMode);
     if (imageMode) {
@@ -1996,6 +2043,12 @@
     refs.settingsPanel.setAttribute("aria-hidden", next ? "false" : "true");
     refs.settingsBackdrop.classList.toggle("hidden", !next);
     refs.btnToggleSettings.setAttribute("aria-expanded", next ? "true" : "false");
+    if (next) {
+      void refreshStats();
+      startStatsAutoRefresh();
+    } else {
+      stopStatsAutoRefresh();
+    }
     if (!next && state.likedUsersListOpen) {
       state.likedUsersListOpen = false;
       refs.btnShowLikedUsers.textContent = "Show Liked Feeds";
@@ -2215,6 +2268,7 @@
     state.selectedAuthorTotal = null;
     state.selectedAuthorTotalLoading = false;
     state.selectedAuthorTotalComplete = true;
+    state.selectedAuthorTotalRetryAt = 0;
   }
 
   function updateFeedModeUi() {
@@ -2264,9 +2318,7 @@
       return;
     }
 
-    state.selectedAuthorTotal = null;
     state.selectedAuthorTotalLoading = true;
-    state.selectedAuthorTotalComplete = true;
     updateFeedModeUi();
 
     try {
@@ -2276,12 +2328,12 @@
       }
       state.selectedAuthorTotal = Number.isInteger(result.totalVideos) ? result.totalVideos : null;
       state.selectedAuthorTotalComplete = result.complete !== false;
+      state.selectedAuthorTotalRetryAt = 0;
     } catch {
       if (state.selectedAuthor !== author) {
         return;
       }
-      state.selectedAuthorTotal = null;
-      state.selectedAuthorTotalComplete = true;
+      state.selectedAuthorTotalRetryAt = Date.now() + 15000;
     } finally {
       if (state.selectedAuthor === author) {
         state.selectedAuthorTotalLoading = false;
@@ -2338,6 +2390,7 @@
     state.selectedAuthorTotal = null;
     state.selectedAuthorTotalLoading = true;
     state.selectedAuthorTotalComplete = true;
+    state.selectedAuthorTotalRetryAt = 0;
     updateFeedModeUi();
     void refreshAuthorTotal(author);
     await resetFeedAndLoad();
@@ -2505,17 +2558,31 @@
     showToast(`Video unavailable (${videoId}). Skipping...`, true);
 
     let next = failedIndex + 1;
-    if (next >= state.items.length) {
-      await loadMore();
-      next = failedIndex + 1;
-    }
+    let loadAttempts = 0;
 
-    if (next < state.items.length) {
-      const nextCard = getCardByIndex(next);
-      if (nextCard) {
-        nextCard.scrollIntoView({ behavior: "smooth", block: "start" });
+    while (true) {
+      while (next < state.items.length && state.failedVideoIds.has(state.items[next]?.id)) {
+        next += 1;
       }
-      return;
+
+      if (next < state.items.length) {
+        const nextCard = getCardByIndex(next);
+        if (nextCard) {
+          nextCard.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+        await setActiveIndex(next);
+        return;
+      }
+
+      if (!state.nextCursor || loadAttempts >= 3) {
+        break;
+      }
+      loadAttempts += 1;
+      const before = state.items.length;
+      await loadMore();
+      if (state.items.length <= before) {
+        break;
+      }
     }
 
     showToast("No additional playable videos right now", true);
@@ -2649,6 +2716,12 @@
       state.prefetchDepth = nextDepth;
       refs.prefetchDepth.value = String(nextDepth);
       void persistSettingsPatch({ prefetchDepth: nextDepth });
+    });
+    refs.tryUnavailableVideos.addEventListener("change", () => {
+      const next = Boolean(refs.tryUnavailableVideos.checked);
+      state.tryUnavailableVideos = next;
+      refs.tryUnavailableVideos.checked = next;
+      void persistSettingsPatch({ tryUnavailableVideos: next });
     });
     refs.feedPageSize.addEventListener("change", () => {
       const nextPageSize = clampInt(refs.feedPageSize.value, state.feedPageSize, 1, 20);

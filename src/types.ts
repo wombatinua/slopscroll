@@ -11,7 +11,7 @@ export interface VideoRecord {
   liked?: boolean;
 }
 
-export type CacheStatus = "ready" | "downloading" | "failed";
+export type CacheStatus = "ready" | "downloading" | "failed" | "dead_source";
 
 export interface CacheEntry {
   videoId: string;
@@ -51,6 +51,7 @@ export type FeedItem = VideoRecord | ImageRecord;
 
 export interface Settings {
   prefetchDepth: number;
+  tryUnavailableVideos: boolean;
   feedPageSize: number;
   loadMoreThreshold: number;
   keepBehindCount: number;
