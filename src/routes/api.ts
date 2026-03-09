@@ -374,6 +374,36 @@ export async function registerApiRoutes(app: FastifyInstance, deps: Dependencies
     }
   });
 
+  app.post<{ Body: { videoId?: string } }>("/api/cache/delete-video", async (req, reply) => {
+    if (isOfflineImageMode()) {
+      return offlineUnavailable(reply, "Offline image mode enabled: action unavailable");
+    }
+
+    const videoId = (req.body?.videoId ?? "").trim();
+    if (!videoId) {
+      reply.code(400);
+      return {
+        ok: false,
+        error: "videoId is required"
+      };
+    }
+
+    try {
+      const result = await deps.cacheService.deleteCachedVideo(videoId);
+      return {
+        ok: true,
+        ...result
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.code(message.includes("download is in progress") ? 409 : 500);
+      return {
+        ok: false,
+        error: message
+      };
+    }
+  });
+
   app.get("/api/settings", async () => {
     const settings = deps.db.getSettings(deps.config.settings);
     deps.config.settings = settings;

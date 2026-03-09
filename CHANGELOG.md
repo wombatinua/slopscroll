@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.19.1 - 2026-03-09
+
+- Added keyboard delete flow for video feeds (`Delete` / `Del`):
+  - Deletes current cached file from disk.
+  - Marks `cache_entries.failure_reason='deleted'` (`status='failed'`).
+  - Prevents deleted videos from being downloaded again in online mode.
+  - Removes current feed item in UI and advances to next item.
+- Added `POST /api/cache/delete-video` endpoint for manual per-video cache removal.
+
 ## 0.18.0 - 2026-03-05
 
 - Added automatic `.env` loading on server startup (`dotenv/config`).

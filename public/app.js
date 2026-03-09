@@ -70,7 +70,8 @@
     likedUsers: new Set(),
     likedUsersListOpen: false,
     likedUsersLastUpdatedAt: null,
-    feedTotalCount: null
+    feedTotalCount: null,
+    deleteVideoInFlight: false
   };
 
   const refs = {
@@ -1579,6 +1580,104 @@
     return refs.feed.querySelector(`.video-card[data-idx="${index}"]`);
   }
 
+  async function removeFeedItemAtIndex(index) {
+    if (!Number.isInteger(index) || index < 0 || index >= state.items.length) {
+      return;
+    }
+
+    const [removed] = state.items.splice(index, 1);
+    if (removed?.id) {
+      state.prefetchSent.delete(removed.id);
+      state.prefetchPending.delete(removed.id);
+      state.failedVideoIds.delete(removed.id);
+    }
+    if (Number.isInteger(state.feedTotalCount) && state.feedTotalCount > 0) {
+      state.feedTotalCount = Math.max(0, state.feedTotalCount - 1);
+    }
+
+    const removedCard = getCardByIndex(index);
+    if (removedCard) {
+      observer.unobserve(removedCard);
+      const video = removedCard.querySelector("video");
+      if (video) {
+        detachVideoSource(video);
+      }
+      const image = removedCard.querySelector("img");
+      if (image) {
+        detachImageSource(image);
+      }
+      removedCard.remove();
+    }
+
+    const cards = refs.feed.querySelectorAll(".video-card");
+    cards.forEach((card) => {
+      const cardIndex = Number.parseInt(card.dataset.idx || "-1", 10);
+      if (!Number.isInteger(cardIndex) || cardIndex <= index) {
+        return;
+      }
+      card.dataset.idx = String(cardIndex - 1);
+    });
+
+    if (state.items.length === 0) {
+      state.activeIndex = -1;
+      setActiveVideoLoading(false);
+      updateFeedModeUi();
+      updateOfflineEmptyState();
+      await loadMore();
+      if (state.items.length > 0) {
+        await setActiveIndex(0);
+      }
+      return;
+    }
+
+    const nextIndex = Math.min(index, state.items.length - 1);
+    const nextCard = getCardByIndex(nextIndex);
+    if (nextCard) {
+      lockFeedIntersection(700);
+      nextCard.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    state.activeIndex = -1;
+    updateFixedMeta();
+    await setActiveIndex(nextIndex);
+    updateOfflineEmptyState();
+  }
+
+  async function deleteActiveVideoAndAdvance() {
+    if (state.deleteVideoInFlight) {
+      return;
+    }
+    if (!Number.isInteger(state.activeIndex) || state.activeIndex < 0 || state.activeIndex >= state.items.length) {
+      return;
+    }
+
+    const activeItem = state.items[state.activeIndex];
+    if (!activeItem || activeItem.kind === "image" || !activeItem.id) {
+      return;
+    }
+
+    state.deleteVideoInFlight = true;
+    stopAutoAdvanceTimer();
+
+    const deleteIndex = state.activeIndex;
+    const videoId = activeItem.id;
+    try {
+      await api("/api/cache/delete-video", {
+        method: "POST",
+        body: JSON.stringify({ videoId })
+      });
+      await removeFeedItemAtIndex(deleteIndex);
+      showToast(`Deleted ${videoId}`);
+      await refreshStats();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      showToast(`Delete failed: ${message}`, true);
+    } finally {
+      state.deleteVideoInFlight = false;
+      scheduleAutoAdvance();
+    }
+  }
+
   function setFeedScrollTopNoAnimation(scrollTop) {
     const previousBehavior = refs.feed.style.scrollBehavior;
     refs.feed.style.scrollBehavior = "auto";
@@ -2941,6 +3040,12 @@
       if (event.key === "f" || event.key === "F") {
         event.preventDefault();
         void toggleFullscreen();
+        return;
+      }
+
+      if ((event.key === "Delete" || event.key === "Del" || event.code === "Delete") && !isEditableTarget(event.target)) {
+        event.preventDefault();
+        void deleteActiveVideoAndAdvance();
         return;
       }
 

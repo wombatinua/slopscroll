@@ -2,7 +2,7 @@
 
 Local single-user cache-first video scroller for Civitai.
 
-Current version: `0.18.0`
+Current version: `0.19.1`
 
 ## Stack
 
@@ -127,6 +127,7 @@ A: With compose defaults, loops come from host `${DATA_DIR}/sounds`, so changes 
 - `PUT /api/settings`
 - `GET /api/app/info`
 - `GET /api/cache/stats`
+- `POST /api/cache/delete-video`
 - `POST /api/spec/reload`
 - `GET /api/audio/library`
 - `GET /api/audio/file/:name`
@@ -161,6 +162,11 @@ A: With compose defaults, loops come from host `${DATA_DIR}/sounds`, so changes 
   - Back arrow returns to the exact main-feed position where author feed was opened.
   - Clicking `SlopScroll` always reinitializes main feed.
 - Feed loading overlay appears during feed initialization and active-video buffering/loading.
+- Keyboard `Delete` behavior in video feeds (`online` and `offline_video`, main or author):
+  - Deletes current cached file from disk (if present).
+  - Marks cache entry as `status=failed` with `failure_reason='deleted'`.
+  - Prevents future re-downloads in online mode (item is filtered from deliverable feed set).
+  - Removes current card from UI and advances to the next feed item.
 - Feed mode is persisted in settings (`online | offline_video | offline_image`):
   - `online`: normal Civitai-backed video feed.
   - `offline_video`: main/author feeds from ready local cached videos only (no Civitai requests).

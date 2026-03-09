@@ -18,6 +18,8 @@
 - [ ] `GET /api/feed/author-stats` returns totals for selected author.
 - [ ] `GET /api/video/:id` downloads on first hit and serves from disk.
 - [ ] Subsequent playback is cache-hit (no re-download).
+- [ ] `POST /api/cache/delete-video` marks row as `status='failed'` with `failure_reason='deleted'`.
+- [ ] Manually deleted videos are excluded from online re-download/serving.
 - [ ] No automatic cache deletion.
 
 ## Prefetch
@@ -33,6 +35,7 @@
 - [ ] Vertical snap-scroller works on desktop + mobile widths.
 - [ ] Active video autoplays and loops.
 - [ ] Scroll/keyboard navigation advances feed.
+- [ ] Pressing `Delete`/`Del` in video feeds removes active item and advances to next item.
 - [ ] Feed initialization loader appears quickly (no blank/stuck-looking screen).
 - [ ] Active-video buffering/loading shows loader (no lingering black bar with no feedback).
 - [ ] Loading/error states are visible.
@@ -63,10 +66,12 @@
 - [ ] While either offline mode is enabled, no outbound requests to `civitai.com` / `civit.ai` occur during browsing/playback.
 - [ ] `offline_video`: author feed and author totals are computed from local ready cache only.
 - [ ] `offline_video`: `GET /api/video/:id` streams ready cached files and returns `409` for uncached/missing files.
+- [ ] `offline_video`: `Delete` on active video deletes local file and marks cache row as deleted.
 - [ ] `offline_image`: feed is served from recursive files under `data/images`.
 - [ ] `offline_image`: feed renders images (not videos) with filename + counter.
 - [ ] `offline_image`: author navigation and likes UI are hidden/disabled.
 - [ ] `offline_image`: `/api/feed/author-stats`, likes routes, and `/api/video/:id` return `409`.
+- [ ] `offline_image`: `/api/cache/delete-video` returns `409`.
 - [ ] `POST /api/auth/cookies` and `POST /api/spec/reload` return `409` in both offline modes.
 - [ ] `POST /api/prefetch` remains available in both offline modes and performs local-only prefetch behavior.
 - [ ] `GET /api/auth/status` returns synthetic valid status in both offline modes.

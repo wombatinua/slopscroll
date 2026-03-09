@@ -42,6 +42,8 @@ interface CandidateAttemptResult {
   diagnostics: CandidateDiagnostics;
 }
 
+const MANUAL_DELETE_FAILURE_REASON = "deleted";
+
 export class CacheService {
   private readonly inFlight = new Map<string, Promise<CacheEntry>>();
   private readonly prefetchQueue: PrefetchTask[] = [];
@@ -59,6 +61,9 @@ export class CacheService {
 
   async ensureCached(video: VideoRecord): Promise<CacheEntry> {
     const existing = this.db.getCacheEntry(video.id);
+    if (this.isManuallyDeletedEntry(existing)) {
+      throw new Error("Video was deleted locally and is blocked from redownload");
+    }
     if (existing?.status === "dead_source" && !this.config.settings.tryUnavailableVideos) {
       throw new Error("Media source is marked as unavailable (dead_source)");
     }
@@ -91,6 +96,9 @@ export class CacheService {
 
   async enqueuePrefetch(video: VideoRecord): Promise<boolean> {
     const existing = this.db.getCacheEntry(video.id);
+    if (this.isManuallyDeletedEntry(existing)) {
+      return false;
+    }
     if (existing?.status === "ready") {
       const ok = await this.verifyReadyEntry(existing);
       if (ok) {
@@ -175,6 +183,49 @@ export class CacheService {
     return {
       deletedFilesEstimate: before.readyVideos,
       deletedBytesEstimate: before.totalBytes
+    };
+  }
+
+  async deleteCachedVideo(videoIdRaw: string): Promise<{ videoId: string; fileDeleted: boolean; hadEntry: boolean; localPath: string }> {
+    const videoId = videoIdRaw.trim();
+    if (!videoId) {
+      throw new Error("videoId is required");
+    }
+    if (this.inFlight.has(videoId)) {
+      throw new Error("Cannot delete a video while download is in progress");
+    }
+
+    for (let idx = this.prefetchQueue.length - 1; idx >= 0; idx -= 1) {
+      if (this.prefetchQueue[idx]?.video.id === videoId) {
+        this.prefetchQueue.splice(idx, 1);
+      }
+    }
+    this.queuedPrefetchIds.delete(videoId);
+
+    const existing = this.db.getCacheEntry(videoId);
+    const localPath = existing?.localPath ?? `${normalizeFileName(videoId)}.webm`;
+    const resolvedPath = this.resolveStoredCachePath(localPath);
+    const fileDeleted = (await this.safeDeleteIfExists(resolvedPath)) || (await this.safeDeleteIfExists(`${resolvedPath}.part`));
+
+    this.db.upsertCacheEntry({
+      videoId,
+      localPath,
+      status: "failed",
+      failureReason: MANUAL_DELETE_FAILURE_REASON
+    });
+
+    logger.info("cache.manual_delete", {
+      videoId,
+      localPath,
+      hadEntry: Boolean(existing),
+      fileDeleted
+    });
+
+    return {
+      videoId,
+      fileDeleted,
+      hadEntry: Boolean(existing),
+      localPath
     };
   }
 
@@ -570,6 +621,18 @@ export class CacheService {
     }
   }
 
+  private async safeDeleteIfExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.promises.unlink(filePath);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return false;
+      }
+      throw error;
+    }
+  }
+
   private async clearDirectoryContents(dirPath: string): Promise<void> {
     try {
       const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
@@ -643,6 +706,15 @@ export class CacheService {
       return true;
     }
     return false;
+  }
+
+  private isManuallyDeletedEntry(entry: CacheEntry | null): boolean {
+    if (!entry || entry.status !== "failed") {
+      return false;
+    }
+    return String(entry.failureReason ?? "")
+      .trim()
+      .toLowerCase() === MANUAL_DELETE_FAILURE_REASON;
   }
 
   private getMediaCandidates(mediaUrl: string): string[] {

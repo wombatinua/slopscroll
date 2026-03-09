@@ -561,8 +561,10 @@ export class FeedService {
     if (entry.status !== "failed") {
       return false;
     }
-    const reason = String(entry.failureReason ?? "").toLowerCase();
-    return reason.includes("media request failed for all url candidates");
+    const reason = String(entry.failureReason ?? "")
+      .trim()
+      .toLowerCase();
+    return reason === "deleted" || reason.includes("media request failed for all url candidates");
   }
 
   private shuffleInPlace(values: string[]): void {

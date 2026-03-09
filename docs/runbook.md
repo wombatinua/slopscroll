@@ -33,6 +33,7 @@ Notes:
 - Settings are autosaved on change; there is no explicit Save Settings action.
 - In author feed, use header back arrow to return to the exact previous main-feed position.
 - Clicking `SlopScroll` in header always reinitializes main feed.
+- In video feeds (`Online` / `Offline Video`), pressing `Delete` removes the active video from local cache, marks it as deleted, and advances to next item.
 - Feed mode selector (`Settings -> Feed mode`) controls source:
   - `Online`: Civitai-backed feed.
   - `Offline Video Mode`: ready cached videos only.
@@ -81,17 +82,24 @@ Run this before release or after changes in feed/cache/settings/audio logic.
 - `Offline Image`: verify image-only feed from `data/images`, likes/author flow hidden.
 - Expect: empty offline source shows centered empty-state overlay (not blank screen).
 
-8. Audio behavior quick pass
+8. Manual video delete flow
+- In `Online` or `Offline Video`, press `Delete` on active video.
+- Expect: current item is removed, feed advances to next item.
+- Expect: file is removed from `data/videos` when present.
+- Expect: `cache_entries` row for that `video_id` becomes `status='failed'` and `failure_reason='deleted'`.
+- In `Online`, expect deleted item to be skipped and not redownloaded.
+
+9. Audio behavior quick pass
 - With loop playback on, test:
   - random timer on: loop switches in configured min/max window
   - switch-on-video-change on: loop switches on item change
 - With both switches off: current loop continues.
 
-9. Panic mode
+10. Panic mode
 - If enabled, press `Spacebar`.
 - Expect: panic overlay appears immediately, tab title becomes `New Tab`, audio/feed playback pauses.
 
-10. Final health
+11. Final health
 - Check `GET /api/health` and `GET /api/cache/stats`.
 - Expect: service healthy, stats endpoint responds, no obvious error spikes in logs.
 
@@ -118,6 +126,7 @@ Run this before release or after changes in feed/cache/settings/audio logic.
 - Check download status in `GET /api/cache/stats` and logs.
 - If file is corrupt/empty, request same video again to redownload.
 - `Dead Sources` in stats means items confirmed as unavailable at source and excluded from online feed by default.
+- If item was manually deleted with `Delete`, it is stored as `failure_reason='deleted'` and intentionally blocked from online re-download.
 - Enable `Try unavailable videos again` in Settings only if you want to re-attempt those dead-source items.
 - In `Offline Video Mode`, uncached videos are intentionally blocked with `409`.
 - In `Offline Image Mode`, `/api/video/:id` is intentionally blocked with `409`.
@@ -127,6 +136,7 @@ Run this before release or after changes in feed/cache/settings/audio logic.
 - `GET /api/auth/status` returns synthetic valid status while either offline mode is enabled.
 - `POST /api/auth/cookies` and `POST /api/spec/reload` return `409` while either offline mode is enabled.
 - `POST /api/prefetch` stays enabled in both offline modes and returns local-only prefetch status.
+- `POST /api/cache/delete-video` is available in `Online` / `Offline Video`, and returns `409` in `Offline Image`.
 - Bottom-right feed controls switch from online sort/period to offline order (`Newest`, `Oldest`, `Random`) in both offline modes.
 - In `Offline Image Mode`, likes endpoints and author-feed endpoints are blocked with `409`.
 - If no eligible items exist, the app shows a centered empty-state overlay instead of a blank feed.
